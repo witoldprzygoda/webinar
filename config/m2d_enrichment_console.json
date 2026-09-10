@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "target_runtime": "Python 3.14",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "audience_profile": "technical_competent",
+  "max_candidates": 8,
+  "sources": [
+    {
+      "id": "material-console-calculator",
+      "role": "material",
+      "repository": "witoldprzygoda/python-notatki",
+      "commit": "0bccb67f308b82b9e14833b3baffa56bcad16222",
+      "path": "docs/02-konsola/konsola-w-praktyce.md",
+      "section_start": "## Konsola jako kalkulator",
+      "section_end": "## Funkcja print"
+    },
+    {
+      "id": "evidence-power-operator",
+      "role": "evidence",
+      "repository": "python/cpython",
+      "commit": "da5ed621a1c0ea495094aa727bbb0b90fb568c7e",
+      "path": "Doc/reference/expressions.rst",
+      "section_start": ".. _power:",
+      "section_end": ".. _unary:"
+    },
+    {
+      "id": "evidence-bitwise-operators",
+      "role": "evidence",
+      "repository": "python/cpython",
+      "commit": "da5ed621a1c0ea495094aa727bbb0b90fb568c7e",
+      "path": "Doc/reference/expressions.rst",
+      "section_start": ".. _bitwise:",
+      "section_end": ".. _comparisons:"
+    },
+    {
+      "id": "evidence-python-c",
+      "role": "evidence",
+      "repository": "python/cpython",
+      "commit": "da5ed621a1c0ea495094aa727bbb0b90fb568c7e",
+      "path": "Doc/using/cmdline.rst",
+      "section_start": ".. option:: -c <command>",
+      "section_end": ".. option:: -m <module-name>"
+    },
+    {
+      "id": "evidence-divmod",
+      "role": "evidence",
+      "repository": "python/cpython",
+      "commit": "da5ed621a1c0ea495094aa727bbb0b90fb568c7e",
+      "path": "Doc/library/functions.rst",
+      "section_start": ".. function:: divmod(a, b, /)",
+      "section_end": ".. function:: enumerate(iterable, start=0)"
+    }
+  ]
+}
