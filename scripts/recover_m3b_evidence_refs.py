@@ -1,10 +1,15 @@
-"""Recover an M3b draft rejected only because evidence source_ref is wrong.
+"""Recover an M3b draft rejected by evidence binding/display formatting.
 
-This recovery never changes narration, visual content, code, output, scene layout,
-or design decisions. It may only rebind an evidence-backed element to another
-existing example_id/check_id when the element content has exactly one matching
-evidence row linked to the same scene narration fragments. The original failed
-M3b run remains untouched; a successful recovery creates a new M3b run.
+This recovery is deterministic. It never changes narration, scene layout, code,
+semantic output, beats, or visual design decisions. It may only:
+
+1. remove trailing CR/LF characters from evidence-backed output/state content;
+2. rebind source_ref to another existing example_id/check_id when the canonical
+   content has exactly one matching evidence row linked to the same scene
+   narration fragments.
+
+The original failed M3b run remains untouched; a successful recovery creates a
+new M3b run and records every permitted change.
 """
 from __future__ import annotations
 
@@ -35,6 +40,11 @@ class M3bRecoveryError(RuntimeError):
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise M3bRecoveryError(message)
+
+
+def _canonical_output(value: Any) -> str:
+    """Remove only terminal line endings; preserve all other whitespace."""
+    return str(value if value is not None else "").rstrip("\r\n")
 
 
 def _candidate_rows(
@@ -71,7 +81,7 @@ def _row_value(row: dict[str, Any], provenance: str, kind: str) -> str | None:
         value = row.get("input") if provenance == "core_example" else row.get("code")
         return value if isinstance(value, str) and value else None
     if kind in {"output", "state"}:
-        value = str(row.get("actual_stdout", "")).strip()
+        value = _canonical_output(row.get("actual_stdout", ""))
         return value or None
     return None
 
@@ -79,10 +89,11 @@ def _row_value(row: dict[str, Any], provenance: str, kind: str) -> str | None:
 def repair_evidence_refs(
     plan: dict[str, Any],
     evidence: dict[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """Return a copy with only uniquely recoverable evidence source_refs changed."""
+) -> tuple[dict[str, Any], list[dict[str, str]], list[dict[str, str]]]:
+    """Return copy with only safe stdout canonicalization/source_ref repairs."""
     repaired = copy.deepcopy(plan)
-    changes: list[dict[str, str]] = []
+    ref_changes: list[dict[str, str]] = []
+    content_normalizations: list[dict[str, str]] = []
 
     for scene in repaired.get("scenes", []):
         if not isinstance(scene, dict):
@@ -104,6 +115,21 @@ def repair_evidence_refs(
             if kind not in {"code", "output", "state"} or not isinstance(content, str):
                 continue
 
+            element_id = str(element.get("element_id", ""))
+            if kind in {"output", "state"}:
+                canonical = _canonical_output(content)
+                if canonical != content:
+                    element["content"] = canonical
+                    content_normalizations.append({
+                        "scene_id": scene_id,
+                        "element_id": element_id,
+                        "kind": str(kind),
+                        "old_content": content,
+                        "new_content": canonical,
+                        "normalization": "remove_trailing_crlf_only",
+                    })
+                    content = canonical
+
             rows = _candidate_rows(
                 provenance,
                 evidence=evidence,
@@ -119,22 +145,21 @@ def repair_evidence_refs(
                 if _row_value(row, provenance, kind) == content
             ]
             if len(matches) != 1:
-                element_id = element.get("element_id")
                 if not matches:
                     raise M3bRecoveryError(
-                        f"Cannot recover {scene_id}/{element_id}: content {content!r} "
+                        f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
                         "matches no evidence row in the scene fragments."
                     )
                 raise M3bRecoveryError(
-                    f"Cannot recover {scene_id}/{element_id}: content {content!r} "
+                    f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
                     "matches multiple evidence rows in the scene fragments."
                 )
 
             new_ref = matches[0][0]
             element["source_ref"] = new_ref
-            changes.append({
+            ref_changes.append({
                 "scene_id": scene_id,
-                "element_id": str(element.get("element_id", "")),
+                "element_id": element_id,
                 "provenance": str(provenance),
                 "kind": str(kind),
                 "content": content,
@@ -142,7 +167,7 @@ def repair_evidence_refs(
                 "new_source_ref": new_ref,
             })
 
-    return repaired, changes
+    return repaired, ref_changes, content_normalizations
 
 
 def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
@@ -169,8 +194,11 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
     approved = verified["approved"]
     evidence = build_evidence_packet(approved)
 
-    repaired, changes = repair_evidence_refs(draft, evidence)
-    _require(changes, "Draft needs no deterministic source_ref recovery.")
+    repaired, ref_changes, content_normalizations = repair_evidence_refs(draft, evidence)
+    _require(
+        ref_changes or content_normalizations,
+        "Draft needs no deterministic evidence/display recovery.",
+    )
     validate_scene_plan(
         repaired,
         artifact=approved["artifact"],
@@ -186,15 +214,18 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
         (json.dumps(repaired, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     )
     recovery_report = {
-        "schema_version": 1,
-        "recovery_kind": "evidence_source_ref_only",
+        "schema_version": 2,
+        "recovery_kind": "evidence_binding_and_stdout_canonicalization",
         "source_failed_m3b_run": str(failed_run_dir),
         "source_designer_session_id": receipt.get("session_id"),
         "source_designer_output_sha256": receipt.get("output_sha256"),
         "llm_called": False,
-        "content_changed": False,
-        "source_ref_changes": changes,
-        "repaired_binding_count": len(changes),
+        "semantic_content_changed": False,
+        "allowed_content_normalization": "remove_trailing_crlf_only",
+        "content_normalizations": content_normalizations,
+        "content_normalization_count": len(content_normalizations),
+        "source_ref_changes": ref_changes,
+        "repaired_binding_count": len(ref_changes),
         "scene_plan_sha256": plan_sha,
     }
     recovery_report["recovery_report_sha256"] = canonical_hash(recovery_report)
@@ -226,7 +257,8 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
         "recovered_from_m3b_run": str(failed_run_dir),
         "deterministic_recovery": True,
         "recovery_report_sha256": recovery_report["recovery_report_sha256"],
-        "repaired_binding_count": len(changes),
+        "content_normalization_count": len(content_normalizations),
+        "repaired_binding_count": len(ref_changes),
         "scene_plan_sha256": plan_sha,
         "scene_count": len(repaired.get("scenes", [])),
         "component_request_count": len(repaired.get("component_requests", [])),
