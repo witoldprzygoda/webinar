@@ -27,7 +27,7 @@ from runners.codex_role import CodexRoleRunner, RoleRunnerError  # noqa: E402
 CONFIG = ROOT / "config" / "m2e_enrichment_portfolio.json"
 PROMPT = ROOT / "prompts" / "enrichment_portfolio_arbiter.md"
 RUBRIC = ROOT / "ENRICHMENT_PORTFOLIO_RUBRIC.md"
-RUBRIC_VERSION = "0.1"
+RUBRIC_VERSION = "0.2"
 
 
 def portfolio_schema(artifact_sha256: str, candidate_ids: list[str]) -> dict:
@@ -206,7 +206,9 @@ def portfolio_task(config: dict, verified: dict, run_dir: str) -> dict:
         "candidates": verified["candidate_context"],
         "constraints": [
             "All candidates already survived individual enrichment selection; this does not mean they all belong in the final portfolio.",
+            "Optimize marginal and orthogonal value relative to the core and other selected candidates, not mere proximity to the core's main axis.",
             "Assess redundancy, thematic balance, insertion clustering and total time across the set.",
+            "Soft budget is not a target to hit exactly; exceeding it is allowed when an additional candidate brings distinct high value within the hard limit.",
             "You may select zero candidates.",
             "Do not edit candidate wording or invent a replacement candidate.",
             "Return one KEEP or DROP decision for every supplied candidate.",
