@@ -62,27 +62,39 @@ hash/evidence bez audio i renderowania.
 
 ## M3: wizualizacja bez glosu
 
-M3a zaimplementowane jako pierwszy test projektowania scen po Gate A.
-`flows/m3a_scene_variants.py` wymaga zweryfikowanego `gate-a-approval.json`,
-przyjmuje niezmienny zaakceptowany artefakt i proponuje trzy rzeczywiscie rozne
-warianty realizacji jednego fragmentu. Pierwszy fragment kalibracyjny to
-`frag-07`, czyli sekwencja z nazwa `_` i zmieniajacym sie ostatnim wynikiem.
+M3a zakonczone jako test projektowania scen po Gate A. Dla `frag-07` powstaly
+trzy rozne mechaniki wizualne. Czlowiek wybral `v2`, czyli `state_model`: stala
+nazwa `_` i jawnie zmieniana wartosc stanu, z rozdzieleniem odczytu od
+aktualizacji. Wybor zapisuje append-only `scripts/record_m3a_selection.py`,
+zwiazany z hashem calego zestawu wariantow i hashem wybranego wariantu.
 
-Projektant dostaje tylko zaakceptowana narracje targetu, powiazane rzeczywiste
-wyniki wykonania i jawny, przypiety know-how pack. Pierwszy know-how snapshot
-uzywa `python-webinar` commit `f9447818061a10b035ee8ad5cb84ef22a9c9deeb`,
-`wideo/RECEPTURA.md`. Warianty uzywaja semantycznych element_id i beat_id, bez
+Projektant dostaje tylko zaakceptowana narracje, powiazane rzeczywiste wyniki
+wykonania i jawny, przypiety know-how pack. Pierwszy know-how snapshot uzywa
+`python-webinar` commit `f9447818061a10b035ee8ad5cb84ef22a9c9deeb`,
+`wideo/RECEPTURA.md`. Warianty i plan uzywaja semantycznych identyfikatorow, bez
 pikseli, bez bezwzglednych sekund, bez audio i bez zmiany Gate A.
 
-Nastepne kroki M3 po wyborze wariantu przez czlowieka:
+M3b jest zaimplementowane jako `flows/m3b_scene_plan.py`. Wymaga poprawnego
+receipt wyboru M3a i tworzy `scene-plan.json` calej lekcji. Plan:
 
-1. zapis human variant selection dla konkretnego `scene-variants` hasha;
-2. scene-plan.json calej lekcji;
-3. implementacja/adaptacja potrzebnych komponentow Remotion;
-4. roboczy timing i podglad bez glosu;
-5. automatyczna kontrola techniczna oraz niezalezny judge-visual na rzeczywistym
+- zachowuje wszystkie fragmenty Gate A dokladnie raz i w tej samej kolejnosci;
+- wiaze kazdy beat z `fragment_id` oraz dokladnym `anchor_text` z narracji;
+- wiaze kod/output/state z konkretnym `example_id` albo `check_id`;
+- nie dopuszcza wymyslonych wynikow wykonania;
+- traktuje `v2` jako wiazaca mechanike dla `frag-07`, ale nie kopiuje jej
+  automatycznie do pozostalych scen;
+- jawnie zglasza nowe komponenty potrzebne przed preview.
+
+`scripts/m3b_review.py` daje tekstowy przeglad calego planu przed implementacja
+Remotion. M3b nadal nie renderuje i nie uruchamia audio.
+
+Nastepne kroki M3:
+
+1. implementacja/adaptacja potrzebnych komponentow Remotion z `scene-plan.json`;
+2. roboczy timing i podglad bez glosu;
+3. automatyczna kontrola techniczna oraz niezalezny judge-visual na rzeczywistym
    podgladzie;
-6. GATE B czlowieka.
+4. GATE B czlowieka.
 
 Zmiana tresci wymuszona wizualizacja zawsze wraca do Gate A zamiast byc
 przemycona przez projektanta scen.
