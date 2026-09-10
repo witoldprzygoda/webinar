@@ -1,4 +1,4 @@
-"""M2b: deterministic execution evidence -> fresh independent content re-review."""
+"""M2b: artifact-bound execution evidence -> fresh independent content re-review."""
 from __future__ import annotations
 
 import argparse
@@ -22,12 +22,11 @@ from flows.m2a_content import (  # noqa: E402
     audience_for,
     canonical_hash,
     judge_schema,
+    validate_author_artifact,
     validate_judge_report,
 )
 from runners.codex_role import CodexRoleRunner, RoleRunnerError  # noqa: E402
-from runners.example_executor import ExecutionEvidenceError, run_manifest  # noqa: E402
-
-EXECUTION_MANIFEST = ROOT / "config" / "m2b_console_examples.json"
+from runners.example_executor import ExecutionEvidenceError, run_execution_plan  # noqa: E402
 
 
 def load_json(path: Path) -> dict:
@@ -48,9 +47,13 @@ def verify_m2a_run(run_dir: Path) -> tuple[dict, dict, dict, str]:
         raise RoleRunnerError("BLOCKED_INPUT", "Input directory is not a completed M2a run.")
     if summary.get("rubric_version") != RUBRIC_VERSION:
         raise RoleRunnerError("BLOCKED_INPUT", "M2a run uses an obsolete rubric version.")
+    validate_author_artifact(artifact)
     artifact_sha256 = canonical_hash(artifact)
     if summary.get("artifact_sha256") != artifact_sha256:
         raise RoleRunnerError("BLOCKED_INPUT", "M2a artifact hash does not match summary.json.")
+    plan_hash = canonical_hash(artifact["execution_plan"])
+    if summary.get("execution_plan_sha256") != plan_hash:
+        raise RoleRunnerError("BLOCKED_INPUT", "M2a execution plan hash does not match summary.json.")
     pack_hash = source_pack.get("source_pack_sha256")
     unhashed = {key: value for key, value in source_pack.items() if key != "source_pack_sha256"}
     if not isinstance(pack_hash, str) or canonical_hash(unhashed) != pack_hash:
@@ -60,10 +63,10 @@ def verify_m2a_run(run_dir: Path) -> tuple[dict, dict, dict, str]:
     return summary, artifact, source_pack, artifact_sha256
 
 
-@task(name="m2b-execute-console-examples", retries=0, cache_policy=NO_CACHE, persist_result=False)
-def execute_task(manifest: dict) -> dict:
+@task(name="m2b-execute-artifact-examples", retries=0, cache_policy=NO_CACHE, persist_result=False)
+def execute_task(plan: dict, expected_runtime: str) -> dict:
     try:
-        return run_manifest(manifest)
+        return run_execution_plan(plan, expected_runtime)
     except ExecutionEvidenceError as exc:
         raise RoleRunnerError(exc.status, str(exc)) from exc
 
@@ -94,8 +97,9 @@ def judge_task(
         "constraints": [
             "You are a fresh independent judge. No previous judge report or verdict is supplied.",
             "This is the same immutable artifact as in M2a; do not reward a revision because there was none.",
-            "Execution evidence comes from a deterministic non-LLM executor and includes exact runtime identity, inputs and actual outputs.",
-            "Assess E1 and E2 against the supplied actual execution evidence, not against documentation examples alone.",
+            "Execution evidence was generated directly from artifact.execution_plan, preserving session_id, example_id, fragment_ids and exact inputs.",
+            "Assess E1 and E2 against the actual stdout/stderr and verify that every concrete narrated code example is represented by sufficient execution evidence.",
+            "A successful executor run does not itself prove that the narration quoted the result correctly; compare the actual result with the text.",
             "Apply L4 independently against the explicit audience profile.",
             "Material is not automatically factual evidence; prefer evidence-role sources for version-dependent claims.",
             "Do not rewrite the artifact. Return only the evaluation report.",
@@ -117,7 +121,6 @@ def m2b_verify(m2a_run_dir: str) -> dict:
     logger = get_run_logger()
     input_dir = Path(m2a_run_dir).expanduser().resolve()
     config = load_json(M2A_CONFIG)
-    manifest = load_json(EXECUTION_MANIFEST)
     run_dir = ROOT / "runs" / "m2b-execution" / uuid.uuid4().hex
     run_dir.mkdir(parents=True, exist_ok=False)
     summary = {
@@ -136,7 +139,8 @@ def m2b_verify(m2a_run_dir: str) -> dict:
     }
     try:
         old_summary, artifact, source_pack, artifact_sha256 = verify_m2a_run(input_dir)
-        evidence = execute_task(manifest)
+        plan = artifact["execution_plan"]
+        evidence = execute_task(plan, config["execution_runtime"])
         (run_dir / "execution-evidence.json").write_text(
             json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -145,11 +149,12 @@ def m2b_verify(m2a_run_dir: str) -> dict:
                 status="EXECUTION_MISMATCH",
                 artifact_sha256=artifact_sha256,
                 artifact_unchanged=True,
+                execution_plan_sha256=canonical_hash(plan),
                 execution_evidence_sha256=evidence["execution_evidence_sha256"],
                 runtime_actual=evidence["runtime"]["version"],
                 all_examples_passed=False,
             )
-            logger.error("Execution evidence contains mismatches; judge was not called.")
+            logger.error("Artifact-bound execution evidence contains mismatches; judge was not called.")
             return summary
 
         judge = judge_task(config, source_pack, artifact, artifact_sha256, evidence, str(run_dir))
@@ -166,6 +171,7 @@ def m2b_verify(m2a_run_dir: str) -> dict:
             artifact_sha256=artifact_sha256,
             artifact_unchanged=True,
             source_pack_sha256=source_pack["source_pack_sha256"],
+            execution_plan_sha256=evidence["execution_plan_sha256"],
             execution_evidence_sha256=evidence["execution_evidence_sha256"],
             runtime_requested=evidence["runtime_requested"],
             runtime_actual=evidence["runtime"]["version"],
