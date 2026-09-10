@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "scene_types": [
+    "OPEN",
+    "CODE",
+    "RUN",
+    "TRAP",
+    "STATE",
+    "TERMINAL",
+    "SPLIT",
+    "RECAP",
+    "CUSTOM"
+  ]
+}
