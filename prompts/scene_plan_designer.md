@@ -15,8 +15,11 @@ tekstu. Nie skracasz go, nie parafrazujesz i nie dopisujesz narracji.
    `narration_fragment_id` i krótki `anchor_text`, który musi być dosłownym
    fragmentem zatwierdzonego tekstu. Dzięki temu późniejszy timing może zostać
    związany z konkretnym miejscem wypowiedzi bez używania sekund.
-3. Kod i output wolno pokazywać tylko z dostarczonych dowodów wykonania.
-   Element musi wskazać `example_id` lub `check_id`, z którego pochodzi.
+3. `output` i `state` wolno pokazywać tylko z dostarczonych dowodów wykonania.
+   Kod najlepiej wiąż z `example_id` lub `check_id`; jeśli jednak dokładny ciąg
+   kodu występuje dosłownie w zatwierdzonej narracji Gate A, może mieć
+   `provenance=approved_narration` i `source_ref` równy odpowiedniemu
+   `fragment_id`. Nie oznacza to wtedy, że ten dokładny ciąg był wykonany.
 4. `visual_label` może zawierać jedynie krótką etykietę ekranową, a nie nowe
    twierdzenie merytoryczne ani pełne zdanie narracji.
 5. Wybrany wariant M3a jest wiążący dla jego fragmentu testowego. Zachowaj jego
@@ -45,8 +48,9 @@ scenę.
 
 Dla każdego elementu podaj pochodzenie:
 
-- `approved_narration` — krótki token/etykieta będąca dosłownym podciągiem
-  zatwierdzonego fragmentu; `source_ref` to `fragment_id`,
+- `approved_narration` — dosłowny podciąg zatwierdzonego fragmentu; może być
+  krótkim tokenem/etykietą albo kodem występującym literalnie w narracji;
+  `source_ref` to `fragment_id`,
 - `core_example` — kod lub wynik z rzeczywistego przykładu rdzenia;
   `source_ref` to `example_id`,
 - `enrichment_check` — kod lub wynik z rzeczywistej kontroli enrichmentu;
@@ -58,12 +62,19 @@ Dla elementu `core_example` lub `enrichment_check` pola `provenance`,
 rekordem evidence. Nie wolno użyć wyniku jednego rekordu z identyfikatorem
 innego rekordu.
 
-Dla `kind=code` użyj kodu dokładnie tak, jak zapisano go w evidence. Dla
-`kind=output` lub `kind=state` użyj `actual_stdout`, ale usuń wyłącznie końcowe
-znaki końca linii CR/LF. Nie dodawaj `\n` ani pustej linii na końcu `content`;
-nie usuwaj natomiast zwykłych spacji, bo mogą być częścią rzeczywistego outputu.
+Dla `kind=code` z provenance `core_example` lub `enrichment_check` użyj kodu
+dokładnie tak, jak zapisano go w evidence. Jeżeli exact code nie istnieje w
+evidence, ale jest dosłownym podciągiem zatwierdzonej narracji, użyj
+`provenance=approved_narration` zamiast udawać powiązanie z execution evidence.
 
-Nie przepisuj wyników z pamięci. Użyj dokładnie wartości z evidence packet.
+Dla `kind=output` lub `kind=state` zawsze użyj rzeczywistego `actual_stdout` z
+evidence, ale usuń wyłącznie końcowe znaki końca linii CR/LF. Nie dodawaj `\n`
+ani pustej linii na końcu `content`; nie usuwaj natomiast zwykłych spacji, bo
+mogą być częścią rzeczywistego outputu. `output/state` nie mogą korzystać z
+provenance `approved_narration`.
+
+Nie przepisuj wyników z pamięci. Użyj dokładnie wartości z evidence packet albo,
+dla kodu opisanego wyżej, dokładnego podciągu zatwierdzonej narracji.
 
 ## Cel wyjścia
 
