@@ -11,8 +11,13 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import sys
 
-from gate_a_review_enriched import (
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.gate_a_review_enriched import (  # noqa: E402
     GateAEnrichedReviewError,
     load_json,
     verify_enriched_chain,
