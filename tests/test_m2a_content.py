@@ -4,9 +4,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
-from flows.m2a_content import CONTENT_CRITERIA, author_schema, canonical_hash, judge_schema, validate_judge_report
+from flows.m2a_content import (
+    CONTENT_CRITERIA,
+    RUBRIC_VERSION,
+    author_schema,
+    audience_for,
+    canonical_hash,
+    judge_schema,
+    validate_judge_report,
+)
 from runners.codex_role import RoleRunnerError, parse_json_events
 from runners.source_pack import SourcePackError, extract_section, raw_url, validate_spec
 
@@ -81,10 +88,11 @@ class ArtifactContractTests(unittest.TestCase):
         fragment = schema["properties"]["narration"]["items"]
         self.assertIn("fragment_id", fragment["properties"])
 
-    def test_judge_schema_binds_artifact_hash_and_rubric(self):
+    def test_judge_schema_binds_artifact_hash_and_current_rubric(self):
         schema = judge_schema("abc")
         self.assertEqual(schema["properties"]["artifact_sha256"]["enum"], ["abc"])
-        self.assertEqual(schema["properties"]["rubric_version"]["enum"], ["0.1"])
+        self.assertEqual(schema["properties"]["rubric_version"]["enum"], ["0.2"])
+        self.assertEqual(RUBRIC_VERSION, "0.2")
 
     def test_judge_requires_each_criterion_once(self):
         report = {"criteria": [{"criterion_id": value} for value in CONTENT_CRITERIA]}
@@ -93,8 +101,24 @@ class ArtifactContractTests(unittest.TestCase):
         with self.assertRaises(RoleRunnerError):
             validate_judge_report(report)
 
-    def test_content_scope_includes_language_and_provenance(self):
-        self.assertEqual(set(CONTENT_CRITERIA), {"F1", "F2", "E1", "E2", "L1", "L2", "L3", "D1", "P1"})
+    def test_content_scope_includes_audience_calibration(self):
+        self.assertEqual(
+            set(CONTENT_CRITERIA),
+            {"F1", "F2", "E1", "E2", "L1", "L2", "L3", "L4", "D1", "P1"},
+        )
+
+    def test_lesson_resolves_explicit_cs_year3_profile(self):
+        profile = audience_for({"audience_profile": "cs_year3"})
+        self.assertEqual(profile["profile_id"], "cs_year3")
+        flattened = json.dumps(profile, ensure_ascii=False)
+        self.assertIn("III roku informatyki", flattened)
+        self.assertIn("infantyliz", flattened)
+        self.assertIn("oczywist", flattened)
+
+    def test_missing_audience_profile_blocks_input(self):
+        with self.assertRaises(RoleRunnerError) as caught:
+            audience_for({})
+        self.assertEqual(caught.exception.status, "BLOCKED_INPUT")
 
 
 if __name__ == "__main__":
