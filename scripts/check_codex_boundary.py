@@ -1,8 +1,8 @@
 """M1b synthetic Windows boundary probe. No LLM, lesson or audio is run.
 
 The native-only profile failed the operator's test on codex-cli 0.153.4.
-The default now adds a scoped, direct ACL guard on disposable foreign-role
-objects. This does NOT modify the production runner or establish full isolation.
+The default adds a scoped, direct ACL guard on disposable foreign-role objects.
+This does NOT modify the production runner or establish full isolation.
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ sys.path.insert(0, str(ROOT))
 from scripts.fixture_guard import fixture_guard  # noqa: E402
 
 ROLES = ('author', 'judge', 'arbiter')
-# Reuse one fixture tree. Exercise each directed transition and warmed permissions.
 ROLE_SEQUENCE = ('author', 'judge', 'arbiter', 'author', 'arbiter', 'judge', 'author')
 PREFIX = 'WEBINAR_BOUNDARY_RESULT='
 PROFILE = 'webinar_boundary_probe'
@@ -54,10 +53,18 @@ for name, item in checks.items():
         denied=isinstance(error, PermissionError) or error.errno in (errno.EACCES,errno.EPERM)
         result={"outcome":"DENIED" if denied else "ERROR",
                 "errno":error.errno,"winerror":getattr(error,"winerror",None),
-                "exception":type(error).__name__}
+                "exception":type(error).__name__,"message":str(error)}
     results[name]=result
 print("WEBINAR_BOUNDARY_RESULT="+json.dumps(results), flush=True)
 '''
+
+
+class BoundaryStepError(RuntimeError):
+    """A failed phase with machine-readable evidence, not an isolation verdict."""
+    def __init__(self, message: str, *, stage: str, details: dict | None = None):
+        super().__init__(message)
+        self.stage = stage
+        self.details = details or {}
 
 
 def toml(value: object) -> str:
@@ -211,28 +218,57 @@ def content_hashes(root: Path) -> dict[str, str]:
             for path in root.rglob('*.txt') if path.name != 'new.txt'}
 
 
+def check_positive_control(baseline: subprocess.CompletedProcess, checks: dict,
+                           role: str, run_dir: Path, prefix: str) -> dict:
+    """Save evidence before parsing; outside the sandbox every check expects ALLOWED."""
+    log_names = {stream: prefix + '-baseline-' + stream + '.log'
+                 for stream in ('stdout', 'stderr')}
+    for stream, name in log_names.items():
+        (run_dir / name).write_text(getattr(baseline, stream), encoding='utf-8')
+    details = {'baseline_exit_code': baseline.returncode, 'baseline_logs': log_names}
+    try:
+        before = parse_result(baseline.stdout, checks)
+    except ValueError as error:
+        raise BoundaryStepError('Invalid positive-control response: ' + str(error),
+                                stage='positive_control', details=details) from error
+    failures = [
+        {'check': name, 'path': checks[name]['path'],
+         'operation': checks[name]['operation'], **value,
+         'expected': 'ALLOWED', 'sandbox_expected': checks[name]['expected']}
+        for name, value in before.items() if value['outcome'] != 'ALLOWED'
+    ]
+    details['control_failures'] = failures
+    (run_dir / (prefix + '-baseline.json')).write_text(
+        json.dumps({'role': role, 'checks': checks, 'result': before,
+                    'exit_code': baseline.returncode}, indent=2, ensure_ascii=True) + '\n',
+        encoding='utf-8')
+    if baseline.returncode or failures:
+        raise BoundaryStepError('Positive control failed for ' + role +
+                                '; sandbox was not started for this step.',
+                                stage='positive_control', details=details)
+    return before
+
+
 def run_step(cli: list[str], root: Path, role: str, run_dir: Path,
              index: int, *, native_only: bool) -> dict:
+    prefix = f'{index:02d}-{role}'
     # Only our synthetic output may be removed to repeat its exclusive-create check.
     (root / role / 'out/new.txt').unlink(missing_ok=True)
     checks = probes(root, role)
     baseline = execute([sys.executable, '-I', '-S', '-B', '-c', PROBE,
                         json.dumps(checks)], root / role, 20)
-    before = parse_result(baseline.stdout, checks)
-    if baseline.returncode or any(value['outcome'] != 'ALLOWED' for value in before.values()):
-        raise RuntimeError('Positive control failed for ' + role + '; no isolation conclusion possible.')
+    check_positive_control(baseline, checks, role, run_dir, prefix)
     (root / role / 'out/new.txt').unlink()
-    # Capture fixture content integrity independently of the sandbox report.
     original = content_hashes(root)
     guard = nullcontext() if native_only else fixture_guard(root, role, execute)
     with guard:
         result = execute(sandbox_command(cli, root, role, checks), root / role)
-    prefix = f'{index:02d}-{role}'
-    (run_dir / (prefix + '-stdout.log')).write_text(result.stdout, encoding='utf-8')
-    (run_dir / (prefix + '-stderr.log')).write_text(result.stderr, encoding='utf-8')
+        # Save even when guard restoration subsequently fails.
+        (run_dir / (prefix + '-stdout.log')).write_text(result.stdout, encoding='utf-8')
+        (run_dir / (prefix + '-stderr.log')).write_text(result.stderr, encoding='utf-8')
     if result.returncode:
         return {'step': index, 'role': role, 'status': 'ERROR', 'exit_code': result.returncode,
-                'message': result.stderr[-2000:]}
+                'stage': 'sandbox_process', 'message': result.stderr[-2000:]}
     actual = parse_result(result.stdout, checks)
     rows = {name: {**value, 'expected': checks[name]['expected'],
                     'pass': value['outcome'] == checks[name]['expected']}
@@ -245,17 +281,51 @@ def run_step(cli: list[str], root: Path, role: str, run_dir: Path,
 
 
 def run_sequence(cli: list[str], root: Path, run_dir: Path, *, native_only: bool,
-                 step_fn=None) -> list[dict]:
+                 step_fn=None, steps: list[dict] | None = None, checkpoint=None) -> list[dict]:
     if step_fn is None:
         step_fn = run_step
-    steps = []
+    if steps is None:
+        steps = []
+    elif steps:
+        raise ValueError('A new probe needs an empty progress list; resuming is not supported.')
     for index, role in enumerate(ROLE_SEQUENCE, start=1):
-        step = step_fn(cli, root, role, run_dir, index, native_only=native_only)
+        try:
+            step = step_fn(cli, root, role, run_dir, index, native_only=native_only)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            step = {'step': index, 'role': role, 'status': 'ERROR',
+                    'stage': getattr(error, 'stage', 'step_execution'),
+                    'exception': type(error).__name__, 'message': str(error)}
+            if isinstance(error, BoundaryStepError):
+                step.update(error.details)
         steps.append(step)
+        if checkpoint is not None:
+            checkpoint(steps)
         print(f"[{index}/{len(ROLE_SEQUENCE)}] {role}: {step['status']}", flush=True)
         if step['status'] == 'ERROR':
-            break  # Do not launch more jobs after an invalid or failed setup.
+            break
     return steps
+
+
+def save_report(path: Path, report: dict) -> None:
+    """Replace one local JSON snapshot, without publishing a partial document."""
+    temporary = path.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(report, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+    temporary.replace(path)
+
+
+def concise_report(report: dict) -> dict:
+    concise = {key: value for key, value in report.items() if key != 'steps'}
+    steps = report['steps']
+    concise['steps_passed'] = sum(step['status'] == 'PASS' for step in steps)
+    concise['steps_completed'] = len(steps)
+    concise['steps_expected'] = len(ROLE_SEQUENCE)
+    concise['failures'] = [
+        {'step': step['step'], 'role': step['role'], 'check': name,
+         'outcome': row['outcome'], 'expected': row['expected']}
+        for step in steps for name, row in step.get('checks', {}).items() if not row['pass']]
+    concise['step_errors'] = [{key: value for key, value in step.items() if key != 'checks'}
+                              for step in steps if step['status'] == 'ERROR']
+    return concise
 
 
 def main() -> int:
@@ -273,6 +343,13 @@ def main() -> int:
               'sequence': list(ROLE_SEQUENCE), 'llm_called': False,
               'instruction_isolation_verified': False, 'isolation_verified': False,
               'production_ready': False, 'network_isolation_tested': False}
+
+    def checkpoint(steps: list[dict]) -> None:
+        # ERROR until the ENTIRE sequence and fixture cleanup have completed.
+        # A killed/interrupted run must never leave a successful final verdict.
+        save_report(run_dir / 'progress.json', {**report, 'steps': steps,
+                                               'filesystem_probe': 'ERROR', 'incomplete': True})
+
     try:
         cli = find_cli()
         with tempfile.TemporaryDirectory(prefix='webinar-boundary-') as tmp:
@@ -284,26 +361,19 @@ def main() -> int:
             if report['cli_version'] != 'codex-cli 0.153.4':
                 raise RuntimeError('Probe pinned to CLI 0.153.4; no unsupported flags were tried.')
             create_fixtures(root)
-            report['steps'] = run_sequence(cli, root, run_dir, native_only=args.native_only)
-            report['filesystem_probe'] = aggregate(report['steps'], len(ROLE_SEQUENCE))
+            run_sequence(cli, root, run_dir, native_only=args.native_only,
+                         steps=report['steps'], checkpoint=checkpoint)
+        report['filesystem_probe'] = aggregate(report['steps'], len(ROLE_SEQUENCE))
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         report['filesystem_probe'] = 'ERROR'
         report['error'] = str(error)
+    except KeyboardInterrupt:
+        report['filesystem_probe'] = 'ERROR'
+        report['error'] = 'Interrupted by operator; the probe is incomplete.'
     finally:
         path = run_dir / 'summary.json'
-        path.write_text(json.dumps(report, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
-        concise = {key: value for key, value in report.items() if key != 'steps'}
-        concise['steps_passed'] = sum(step['status'] == 'PASS' for step in report['steps'])
-        concise['steps_expected'] = len(ROLE_SEQUENCE)
-        concise['failures'] = [
-            {'step': step['step'], 'role': step['role'], 'check': name,
-             'outcome': row['outcome'], 'expected': row['expected']}
-            for step in report['steps'] for name, row in step.get('checks', {}).items()
-            if not row['pass']]
-        concise['step_errors'] = [
-            {key: value for key, value in step.items() if key != 'checks'}
-            for step in report['steps'] if step['status'] == 'ERROR']
-        print(json.dumps(concise, indent=2, ensure_ascii=True))
+        save_report(path, report)
+        print(json.dumps(concise_report(report), indent=2, ensure_ascii=True))
         print('Report: ' + str(path))
     return 0 if report['filesystem_probe'] == 'PASS' else 1
 
