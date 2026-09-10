@@ -2,39 +2,55 @@
 
 ## M0: start
 
-Dostarczone: procedura, rubric, instrukcje ról, rejestr źródeł, kontrola plików
+Dostarczone: procedura, rubric, instrukcje rol, rejestr zrodel, kontrola plikow
 oraz test startowy Prefect. Lokalnie: instalacja, logowanie Codex, uruchomienie
-serwera i flow. Odbiór: video-production-startup w panelu. Bez LLM/audio.
+serwera i flow. Odbior: video-production-startup w panelu. Bez LLM/audio.
 
-## M1: wykonawca i izolacja
+## M1: wykonawca i izolacja kontekstu
 
-Adapter Runner: role + immutable input packet + output contract -> artifact + receipt.
-Pierwszy backend: codex exec. Nowy proces/sesja, brak resume i podagentów autora.
-Testujemy faktyczne logowanie abonamentowe; brak zmiennej OPENAI_API_KEY nie
-wyklucza zapisanego klucza/custom providera/dodatkowych kredytów.
-Limity: BLOCKED_LIMIT, bez zakupu lub płatnego fallbacku.
+M1a zalicza polaczenie Prefect -> Codex oraz nowe procesy/sesje bez resume/fork.
 
-Wymagane testy: brak odczytu danych autora przez sędziego, brak zapisu autora
-do rubric i zgód, brak dziedziczenia pamięci/instrukcji, poprawny dostęp do
-dozwolonych dowodów i zapis hashy. Sam rozdział PID/katalogów nie zalicza izolacji.
+Glowna granica M1 to jawny context packet: Prefect/Python sklada dokladne wejscie
+roli i przekazuje je nowemu `codex exec` przez stdin. Pierwsze role tekstowe nie
+maja ogolnych narzedzi filesystem/shell. `--ignore-user-config`, `--ignore-rules`,
+`--ephemeral`, wylaczone memories/skills/MCP/apps i czysty katalog ograniczaja
+niejawny kontekst. `codex debug prompt-input` sluzy do testu model-visible input.
+Globalny CODEX_HOME/AGENTS jest osobno wykrywany i blokuje odbior M1.
 
-## M2: pierwszy kompletny przepływ merytoryczny
+Wczesniejsza proba ACL Windows wykryla rzeczywiste problemy z dziedziczonymi
+uprawnieniami i pozostaje testem diagnostycznym, ale nie jest juz architektura
+handoffu rol. Jezeli pozniej damy agentowi shell/filesystem/browser/MCP, taka
+powierzchnia wymaga nowego testu izolacji oraz odpowiedniego sandboxa/brokera.
 
-Resolver -> source-pack -> autor -> executor przykładów -> osobni sędziowie
--> arbiter w razie potrzeby -> poprawka -> nowa ocena -> GATE A człowieka.
-Odbiór: poprawny tekst, dowody, pokrycie zakresu, restart bez utraty pracy.
+Limity: BLOCKED_LIMIT, bez zakupu lub platnego fallbacku. Autor nie dostaje rubric
+jako edytowalnego zasobu; sedzia nie dostaje historii autora. Hashe packetow i
+artefaktow sa zapisywane.
 
-## M3: wizualizacja bez głosu
+Odbior M1c: syntetyczne markery rol nie przeciekaja do innych model-visible
+promptow, brak repo/global instructions w niejawnej warstwie oraz zachowany
+kontrakt swiezych sesji.
 
-Adaptacja potrzebnych elementów python-webinar. Dwa warianty fragmentu,
-wybór, podgląd z napisami, semantyczne wskazanie, niezależna ocena i GATE B.
+## M2: pierwszy kompletny przeplyw merytoryczny
+
+Resolver -> source-pack -> autor -> executor przykladow -> osobni sedziowie
+-> arbiter w razie potrzeby -> poprawka -> nowa ocena -> GATE A czlowieka.
+Odbior: poprawny tekst, dowody, pokrycie zakresu, restart bez utraty pracy.
+
+Pierwszy pionowy wycinek M2 bedzie mniejszy: source-pack -> author ->
+judge_content, z jawnymi packetami M1 i bez audio/Remotion. Potem dolozymy
+executor, judge_language, arbitra i petle rewizji.
+
+## M3: wizualizacja bez glosu
+
+Adaptacja potrzebnych elementow python-webinar. Dwa warianty fragmentu,
+wybor, podglad z napisami, semantyczne wskazanie, niezalezna ocena i GATE B.
 
 ## M4: audio i final
 
-Próbka wymowy, zgoda na koszt, ElevenLabs, cache, kontrola nagrań, mapowanie
+Probka wymowy, zgoda na koszt, ElevenLabs, cache, kontrola nagran, mapowanie
 tekstu/czasu, ponowna kompilacja, render, GATE C. Bez automatycznej publikacji.
 
-## M5: przenośność i skala
+## M5: przenosnosc i skala
 
 Adapter Claude Code po aktualnej weryfikacji zasad, drugi kurs, limity kolejki,
-magazyn artefaktów i koszt zaakceptowanej minuty. Nie budować przed testem M2/M3.
+magazyn artefaktow i koszt zaakceptowanej minuty. Nie budowac przed testem M2/M3.
