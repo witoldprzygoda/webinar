@@ -11,6 +11,7 @@ from flows.m2a_content import (
     audience_for,
     canonical_hash,
     judge_schema,
+    validate_author_artifact,
     validate_judge_report,
 )
 from runners.codex_role import RoleRunnerError, parse_json_events
@@ -33,14 +34,12 @@ class SourcePackTests(unittest.TestCase):
             validate_spec(spec)
 
     def test_path_escape_rejected(self):
-        spec = self.spec()
-        spec["path"] = "../secret"
+        spec = self.spec(); spec["path"] = "../secret"
         with self.assertRaises(SourcePackError):
             validate_spec(spec)
 
     def test_section_extract_is_exact_and_excludes_next_section(self):
-        value = extract_section("head\nSTART\ninside\nEND\nafter\n", "START", "END")
-        self.assertEqual(value, "START\ninside\n")
+        self.assertEqual(extract_section("head\nSTART\ninside\nEND\nafter\n", "START", "END"), "START\ninside\n")
 
     def test_missing_marker_is_error(self):
         with self.assertRaises(SourcePackError):
@@ -61,9 +60,7 @@ class RoleProtocolTests(unittest.TestCase):
 
     def test_generic_json_output_and_session(self):
         session, output, usage = parse_json_events(self.events())
-        self.assertEqual(session, "fresh")
-        self.assertTrue(output["ok"])
-        self.assertEqual(usage["output_tokens"], 1)
+        self.assertEqual(session, "fresh"); self.assertTrue(output["ok"]); self.assertEqual(usage["output_tokens"], 1)
 
     def test_tool_activity_rejected(self):
         text = self.events() + "\n" + json.dumps({"type": "item.started", "item": {"type": "command_execution"}})
@@ -77,15 +74,59 @@ class RoleProtocolTests(unittest.TestCase):
 
 
 class ArtifactContractTests(unittest.TestCase):
+    def artifact(self):
+        return {
+            "title": "T",
+            "narration": [
+                {"fragment_id": "f1", "text": "A"},
+                {"fragment_id": "f2", "text": "B"},
+                {"fragment_id": "f3", "text": "C"},
+            ],
+            "execution_plan": {
+                "schema_version": 1,
+                "sessions": [{
+                    "session_id": "s1",
+                    "steps": [
+                        {"example_id": "e1", "fragment_ids": ["f1"], "input": "x = 4", "expected_outcome": "success", "expected_exception": ""},
+                        {"example_id": "e2", "fragment_ids": ["f1", "f2"], "input": "x * 2", "expected_outcome": "success", "expected_exception": ""},
+                    ],
+                }],
+            },
+            "claims": [], "coverage": [], "open_questions": [],
+        }
+
     def test_hash_is_order_independent_for_objects(self):
         self.assertEqual(canonical_hash({"a": 1, "b": 2}), canonical_hash({"b": 2, "a": 1}))
 
-    def test_author_schema_has_semantic_fragments_and_claims(self):
+    def test_author_schema_has_semantic_fragments_claims_and_execution_plan(self):
         schema = author_schema()
         self.assertIn("narration", schema["properties"])
         self.assertIn("claims", schema["properties"])
-        fragment = schema["properties"]["narration"]["items"]
-        self.assertIn("fragment_id", fragment["properties"])
+        self.assertIn("execution_plan", schema["properties"])
+        step = schema["properties"]["execution_plan"]["properties"]["sessions"]["items"]["properties"]["steps"]["items"]
+        self.assertIn("fragment_ids", step["properties"])
+        self.assertNotIn("expected_stdout", step["properties"])
+
+    def test_valid_execution_plan_contract(self):
+        validate_author_artifact(self.artifact())
+
+    def test_execution_plan_rejects_unknown_fragment(self):
+        value = self.artifact()
+        value["execution_plan"]["sessions"][0]["steps"][0]["fragment_ids"] = ["missing"]
+        with self.assertRaises(RoleRunnerError):
+            validate_author_artifact(value)
+
+    def test_execution_plan_rejects_duplicate_example_id(self):
+        value = self.artifact()
+        value["execution_plan"]["sessions"][0]["steps"][1]["example_id"] = "e1"
+        with self.assertRaises(RoleRunnerError):
+            validate_author_artifact(value)
+
+    def test_success_step_must_not_name_exception(self):
+        value = self.artifact()
+        value["execution_plan"]["sessions"][0]["steps"][0]["expected_exception"] = "NameError"
+        with self.assertRaises(RoleRunnerError):
+            validate_author_artifact(value)
 
     def test_judge_schema_binds_artifact_hash_and_current_rubric(self):
         schema = judge_schema("abc")
@@ -101,10 +142,7 @@ class ArtifactContractTests(unittest.TestCase):
             validate_judge_report(report)
 
     def test_content_scope_includes_audience_calibration(self):
-        self.assertEqual(
-            set(CONTENT_CRITERIA),
-            {"F1", "F2", "E1", "E2", "L1", "L2", "L3", "L4", "D1", "P1"},
-        )
+        self.assertEqual(set(CONTENT_CRITERIA), {"F1", "F2", "E1", "E2", "L1", "L2", "L3", "L4", "D1", "P1"})
 
     def test_lesson_resolves_explicit_technical_profile(self):
         profile = audience_for({"audience_profile": "technical_competent"})
