@@ -11,12 +11,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-
-from scripts.gate_a_review_enriched import (  # noqa: E402
+from gate_a_review_enriched import (
     GateAEnrichedReviewError,
     load_json,
     verify_enriched_chain,
@@ -32,6 +28,25 @@ def canonical_hash(value: object) -> str:
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _review_hash_matches(review_path: Path, expected_sha256: str) -> bool:
+    """Accept exact bytes or the legacy LF-canonical text hash.
+
+    Older Gate A review receipts hashed the in-memory Markdown string before
+    Path.write_text() wrote it. On Windows that write translated LF to CRLF,
+    so the receipt and the file differed byte-for-byte even though the reviewed
+    text was identical. Keep exact-byte verification first, then allow only the
+    newline-normalized legacy representation as a compatibility path.
+    """
+    raw = review_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() == expected_sha256:
+        return True
+    try:
+        canonical_text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    except UnicodeDecodeError:
+        return False
+    return hashlib.sha256(canonical_text.encode("utf-8")).hexdigest() == expected_sha256
 
 
 def _load_review_receipt(run_dir: Path, artifact_sha256: str) -> dict:
@@ -53,8 +68,7 @@ def _load_review_receipt(run_dir: Path, artifact_sha256: str) -> dict:
     review_path = Path(review_file).expanduser().resolve()
     if not review_path.is_file():
         raise GateAApprovalError("Reviewed Gate A Markdown file no longer exists.")
-    actual_review_sha = hashlib.sha256(review_path.read_bytes()).hexdigest()
-    if actual_review_sha != review_sha:
+    if not _review_hash_matches(review_path, review_sha):
         raise GateAApprovalError("Reviewed Gate A Markdown changed after review receipt creation.")
     return receipt
 
