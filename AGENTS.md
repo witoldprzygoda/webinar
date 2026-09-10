@@ -7,6 +7,11 @@ jawnie zlecony etap; nie realizuj całego planu bez decyzji operatora.
 - Podagent autora nie jest niezależnym sędzią. Nie używaj resume/fork jego sesji.
 - Izolacja wymaga kontroli dostępu do plików, logów, pamięci i konfiguracji;
   sam osobny katalog lub prompt nie wystarcza. Wymagane są testy dostępu.
+- Każda lekcja musi jawnie wskazać profil odbiorcy. Autor i sędziowie dostają ten
+  sam profil jako kontrolowane wejście; nie wolno zgadywać poziomu kompetencji.
+- Profesjonalny język nie wystarcza: przekaz ma być skalibrowany do wiedzy
+  wstępnej odbiorcy. Nie objaśniaj wiedzy bazowej wskazanej jako opanowana,
+  chyba że brief wymaga przypomnienia albo dana rzecz jest realną pułapką.
 - Autor nie może zmieniać rubric, cudzych raportów ani zatwierdzeń człowieka.
 - PRODUCTION_WORKFLOW.md jest nadrzędny. QUALITY_RUBRIC.md wymaga zgody człowieka
   na zmianę. Nie osłabiaj kryteriów, żeby zaliczyć własny wynik.
