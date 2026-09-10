@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from flows.m2e_portfolio import (
+    PROMPT,
+    RUBRIC,
     RUBRIC_VERSION,
     finalize_portfolio,
     portfolio_schema,
@@ -41,10 +43,19 @@ class M2ePortfolioTests(unittest.TestCase):
     def test_schema_binds_artifact_and_candidates(self):
         schema = portfolio_schema("a" * 64, ["c1", "c2"])
         self.assertEqual(schema["properties"]["artifact_sha256"]["enum"], ["a" * 64])
-        self.assertEqual(schema["properties"]["rubric_version"]["enum"], ["0.1"])
-        self.assertEqual(RUBRIC_VERSION, "0.1")
+        self.assertEqual(schema["properties"]["rubric_version"]["enum"], ["0.2"])
+        self.assertEqual(RUBRIC_VERSION, "0.2")
         enum = schema["properties"]["decisions"]["items"]["properties"]["candidate_id"]["enum"]
         self.assertEqual(enum, ["c1", "c2"])
+
+    def test_prompt_and_rubric_require_marginal_not_core_proximity_value(self):
+        prompt = PROMPT.read_text(encoding="utf-8").lower()
+        rubric = RUBRIC.read_text(encoding="utf-8").lower()
+        self.assertIn("marginal", prompt)
+        self.assertIn("marginal", rubric)
+        self.assertIn("soft budget", prompt)
+        self.assertIn("soft budget", rubric)
+        self.assertIn("nie jest premi", rubric)
 
     def test_report_must_decide_every_candidate_once(self):
         validate_portfolio_report({"decisions": [
