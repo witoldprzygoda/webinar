@@ -18,6 +18,7 @@ ROLES = {
     "judge_language",
     "enrichment_scout",
     "judge_enrichment",
+    "enrichment_integrator",
     "arbiter",
     "scene_designer",
     "judge_visual",
