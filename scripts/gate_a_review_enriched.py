@@ -241,7 +241,7 @@ def make_enriched_review(run_dir: Path) -> tuple[Path, str, dict[str, Any]]:
     verified = verify_enriched_chain(run_dir)
     markdown = build_enriched_markdown(verified)
     output = verified["run_dir"] / "gate-a-review.md"
-    output.write_text(markdown, encoding="utf-8")
+    output.write_bytes(markdown.encode("utf-8"))
     receipt = {
         "schema_version": 2,
         "gate": "A",
@@ -252,7 +252,7 @@ def make_enriched_review(run_dir: Path) -> tuple[Path, str, dict[str, Any]]:
         "audience_profile": verified["summary"].get("audience_profile"),
         "base_artifact_sha256": verified["base_artifact_sha256"],
         "artifact_sha256": verified["artifact_sha256"],
-        "review_sha256": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+        "review_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
         "review_file": str(output),
         "llm_called": False,
         "audio_called": False,
