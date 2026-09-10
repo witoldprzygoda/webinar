@@ -68,10 +68,16 @@ class M2ePortfolioTests(unittest.TestCase):
         self.assertTrue(result["soft_budget_exceeded"])
         self.assertEqual(result["selected_count"], 3)
 
+    def test_hard_budget_boundary_is_allowed(self):
+        result = finalize_portfolio(
+            self.candidates(), self.decisions(["c1", "c2", "c4"]), self.config()
+        )
+        self.assertEqual(result["selected_estimated_seconds"], 65)
+
     def test_hard_budget_is_enforced(self):
         with self.assertRaises(RoleRunnerError) as caught:
             finalize_portfolio(
-                self.candidates(), self.decisions(["c1", "c2", "c4"]), self.config()
+                self.candidates(), self.decisions(["c1", "c3", "c4"]), self.config()
             )
         self.assertEqual(caught.exception.status, "INVALID_OUTPUT")
 
