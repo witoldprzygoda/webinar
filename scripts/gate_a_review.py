@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+RUBRIC_VERSION = "0.2"
+
 
 class GateAReviewError(RuntimeError):
     pass
@@ -50,6 +52,9 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
     m2c = load_json(m2c_dir / "summary.json")
     _require(m2c.get("stage") == "M2c", "Input is not an M2c run.")
     _require(m2c.get("status") == "COMPLETED", "M2c is not completed.")
+    _require(m2c.get("rubric_version") == RUBRIC_VERSION, "Gate A run uses an obsolete rubric version.")
+    audience_profile = m2c.get("audience_profile")
+    _require(isinstance(audience_profile, str) and audience_profile, "Gate A run has no audience profile.")
     _require(m2c.get("gate_a_reached") is True, "Gate A was not reached.")
     _require(m2c.get("gate_a_approved") is False, "Gate A is already marked approved.")
     _require(
@@ -62,6 +67,8 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
     package = load_json(m2c_dir / "gate-a-package.json")
     _require(package.get("gate") == "A", "Invalid Gate A package.")
     _require(package.get("artifact_sha256") == expected_sha, "Gate package artifact hash mismatch.")
+    _require(package.get("rubric_version") == RUBRIC_VERSION, "Gate package rubric version mismatch.")
+    _require(package.get("audience_profile") == audience_profile, "Gate package audience profile mismatch.")
     _require(
         package.get("human_approval") == "PENDING_HUMAN_APPROVAL",
         "Gate package is not pending human approval.",
@@ -77,6 +84,8 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
     m2a = load_json(m2a_dir / "summary.json")
     artifact = load_json(m2a_dir / "artifact.json")
     _require(m2a.get("stage") == "M2a" and m2a.get("status") == "COMPLETED", "Invalid M2a source run.")
+    _require(m2a.get("rubric_version") == RUBRIC_VERSION, "M2a source run uses an obsolete rubric version.")
+    _require(m2a.get("audience_profile") == audience_profile, "M2a audience profile mismatch.")
     _require(canonical_hash(artifact) == expected_sha, "Artifact bytes/content no longer match Gate A hash.")
     _require(m2a.get("artifact_sha256") == expected_sha, "M2a summary artifact hash mismatch.")
 
@@ -84,10 +93,13 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
     content_report = load_json(m2b_dir / "judge-report-with-execution.json")
     evidence = load_json(m2b_dir / "execution-evidence.json")
     _require(m2b.get("stage") == "M2b" and m2b.get("status") == "COMPLETED", "Invalid M2b source run.")
+    _require(m2b.get("rubric_version") == RUBRIC_VERSION, "M2b source run uses an obsolete rubric version.")
+    _require(m2b.get("audience_profile") == audience_profile, "M2b audience profile mismatch.")
     _require(m2b.get("artifact_sha256") == expected_sha, "M2b artifact hash mismatch.")
     _require(m2b.get("artifact_unchanged") is True, "M2b did not preserve the artifact.")
     _require(m2b.get("content_judge_pass") is True, "Content judge is not passing.")
     _require(content_report.get("artifact_sha256") == expected_sha, "Content report evaluates another artifact.")
+    _require(content_report.get("rubric_version") == RUBRIC_VERSION, "Content report uses an obsolete rubric version.")
     _require(content_report.get("verdict") == "PASS", "Content report verdict is not PASS.")
     _require(_criteria_all_pass(content_report), "Not every content criterion is PASS.")
 
@@ -102,8 +114,11 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
 
     language_report = load_json(m2c_dir / "judge-language-report.json")
     _require(language_report.get("artifact_sha256") == expected_sha, "Language report evaluates another artifact.")
+    _require(language_report.get("rubric_version") == RUBRIC_VERSION, "Language report uses an obsolete rubric version.")
     _require(language_report.get("verdict") == "PASS", "Language report verdict is not PASS.")
     _require(_criteria_all_pass(language_report), "Not every language criterion is PASS.")
+    language_ids = {row.get("criterion_id") for row in language_report.get("criteria", [])}
+    _require("L4" in language_ids, "Language report did not evaluate audience-level criterion L4.")
 
     return {
         "m2c_dir": m2c_dir,
@@ -116,6 +131,7 @@ def verify_chain(m2c_dir: Path) -> dict[str, Any]:
         "execution_evidence": evidence,
         "artifact_sha256": expected_sha,
         "execution_evidence_sha256": evidence_hash,
+        "audience_profile": audience_profile,
     }
 
 
@@ -154,6 +170,8 @@ def build_markdown(verified: dict[str, Any]) -> str:
         "# Gate A — przegląd treści przez człowieka",
         "",
         f"- Lekcja: `{m2c.get('lesson_id')}`",
+        f"- Profil odbiorcy: `{verified['audience_profile']}`",
+        f"- Rubric: `{RUBRIC_VERSION}`",
         f"- Artefakt SHA-256: `{verified['artifact_sha256']}`",
         "- Stan: **PENDING_HUMAN_APPROVAL**",
         "- Ten raport **nie zatwierdza** Gate A.",
@@ -218,6 +236,8 @@ def make_review(m2c_dir: Path) -> tuple[Path, str, dict[str, Any]]:
         "gate": "A",
         "status": "READY_FOR_HUMAN_REVIEW",
         "approval_recorded": False,
+        "rubric_version": RUBRIC_VERSION,
+        "audience_profile": verified["audience_profile"],
         "artifact_sha256": verified["artifact_sha256"],
         "execution_evidence_sha256": verified["execution_evidence_sha256"],
         "review_sha256": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
@@ -244,6 +264,8 @@ def main() -> int:
     print("\n---")
     print(json.dumps({
         "gate_a_review": "READY_FOR_HUMAN_REVIEW",
+        "rubric_version": receipt["rubric_version"],
+        "audience_profile": receipt["audience_profile"],
         "artifact_sha256": receipt["artifact_sha256"],
         "approval_recorded": False,
         "review_file": str(output),
