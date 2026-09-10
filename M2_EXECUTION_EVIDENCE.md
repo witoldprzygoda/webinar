@@ -1,44 +1,45 @@
 # M2b: execution evidence before content re-review
 
-M2a intentionally omitted execution evidence. Its independent judge therefore
-returned BLOCKED with E1/E2 NOT_VERIFIED while passing the remaining content
-criteria. M2b closes exactly that evidence gap without changing the authored
-artifact.
+M2b verifies the exact examples attached to the authored artifact. The executor
+must not use a separately maintained example list as production truth, because
+that can diverge from the narration.
 
 ## Contract
 
-1. Load an already completed M2a run and verify the hashes of `artifact.json`
-   and `source-pack.json` against its summary.
-2. Run a fixed console-example manifest under exact CPython 3.14.7.
-3. Use Python's stdlib `code.InteractiveConsole` in one persistent namespace so
-   expression display, assignment silence and the special interactive `_`
-   behavior are exercised in-session.
-4. Record runtime implementation/version/executable, every input, actual stdout
-   and stderr, expected stdout, per-example comparison and evidence hashes.
-5. If any execution differs, stop before the judge (`EXECUTION_MISMATCH`).
-6. If execution matches, launch one NEW independent judge session and provide
-   the same immutable artifact plus the new execution evidence. The previous
-   judge report/verdict is deliberately not included.
+1. M2a writes `artifact.json` containing both canonical narration and
+   `execution_plan`.
+2. Every concrete code example discussed in narration is represented in that
+   plan and linked back through `fragment_ids`.
+3. Steps that share interpreter state are ordered inside the same `session_id`.
+   A new session starts a fresh interactive namespace (including a reset of `_`).
+4. The plan contains exact input and expected outcome (`success` or a named
+   exception), but **not expected stdout**. Actual stdout/stderr is evidence
+   produced by the executor, not text supplied by the author.
+5. M2b verifies artifact/source/plan hashes and executes the plan under exact
+   CPython configured by the lesson (`execution_runtime`; currently 3.14.7).
+6. It records runtime identity, session/example/fragment ids, exact input,
+   actual stdout/stderr, observed exception and per-step outcome checks.
+7. Any execution mismatch stops before the judge (`EXECUTION_MISMATCH`).
+8. A NEW independent content judge receives the immutable artifact and the
+   resulting evidence. It must still compare actual results with narration and
+   check that the plan covers every concrete narrated code example.
 
-The executor is deterministic Python code, not an LLM, uses no network, audio or
-rendering. M2b still does not reach human Gate A because the separate language
-judge and the complete M2 review chain are not implemented yet.
+The executor is deterministic Python code, not an LLM, and uses no network,
+audio or rendering. A passing executor only proves that declared inputs executed
+as declared; it does not prove that the narration quoted or interpreted their
+results correctly.
+
+The old `config/m2b_console_examples.json` fixed manifest remains only as a
+regression fixture for the early M2b prototype. It is not the source of
+production execution evidence.
 
 ## Runtime
 
-The manifest is pinned to CPython 3.14.7, released 2026-08-05. Discovery tries:
-
-- `WEBINAR_PYTHON_314` when explicitly set to an interpreter path;
-- Windows `py -3.14`;
-- `python3.14`;
-- `python` as a final candidate, accepted only when it is exact CPython 3.14.7.
-
-A different or missing runtime returns `BLOCKED_RUNTIME`; the executor never
-silently substitutes Python 3.13 or another 3.14 patch release.
+Discovery tries `WEBINAR_PYTHON_314`, Windows `py -3.14`, `python3.14`, then
+`python`, accepting only the exact CPython patch release requested by the lesson.
+A different or missing runtime returns `BLOCKED_RUNTIME`.
 
 ## Run on Windows / Git Bash
-
-Use the clean webinar Codex profile already established for M1:
 
 ```bash
 export CODEX_HOME="$(cygpath -w "$HOME/.codex-webinar")"
@@ -48,7 +49,6 @@ export PREFECT_API_URL="http://127.0.0.1:4200/api"
 ./.venv/Scripts/python.exe flows/m2b_verify.py runs/m2a-content/<M2A_RUN_ID>
 ```
 
-For the first real run, use the M2a directory that produced the reviewed
-artifact. Expected success is `status: COMPLETED`, `artifact_unchanged: true`,
-`runtime_actual: 3.14.7`, `all_examples_passed: true`, and a fresh judge session.
-The judge verdict is not forced to PASS.
+For the combined current M2 chain use `flows/m2_content_gate.py`; it stops with
+`REVISION_REQUIRED` rather than calling the language judge when content review
+has not passed.
