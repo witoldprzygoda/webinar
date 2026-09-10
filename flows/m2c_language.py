@@ -16,13 +16,15 @@ sys.path.insert(0, str(ROOT))
 from flows.m2a_content import (  # noqa: E402
     CONFIG as M2A_CONFIG,
     RUBRIC,
+    RUBRIC_VERSION,
+    audience_for,
     canonical_hash,
 )
 from flows.m2b_verify import load_json, verify_m2a_run  # noqa: E402
 from runners.codex_role import CodexRoleRunner, RoleRunnerError  # noqa: E402
 
 LANGUAGE_PROMPT = ROOT / "prompts" / "judge_language.md"
-LANGUAGE_CRITERIA = ("L1", "L2", "L3", "P1")
+LANGUAGE_CRITERIA = ("L1", "L2", "L3", "L4", "P1")
 
 
 def language_schema(artifact_sha256: str) -> dict:
@@ -61,11 +63,11 @@ def language_schema(artifact_sha256: str) -> dict:
         "additionalProperties": False,
         "properties": {
             "artifact_sha256": {"type": "string", "enum": [artifact_sha256]},
-            "rubric_version": {"type": "string", "enum": ["0.1"]},
+            "rubric_version": {"type": "string", "enum": [RUBRIC_VERSION]},
             "role": {"type": "string", "enum": ["judge_language"]},
             "verdict": {"type": "string", "enum": ["PASS", "REVISE", "BLOCKED"]},
             "criteria": {
-                "type": "array", "minItems": 4, "maxItems": 4, "items": criterion,
+                "type": "array", "minItems": len(LANGUAGE_CRITERIA), "maxItems": len(LANGUAGE_CRITERIA), "items": criterion,
             },
             "coverage_checks": {"type": "array", "items": {"type": "string"}},
             "findings": {"type": "array", "items": finding},
@@ -82,7 +84,7 @@ def validate_language_report(report: dict) -> None:
     if len(ids) != len(LANGUAGE_CRITERIA) or set(ids) != set(LANGUAGE_CRITERIA):
         raise RoleRunnerError(
             "INVALID_OUTPUT",
-            "Language judge criteria must contain L1, L2, L3 and P1 exactly once.",
+            "Language judge criteria must contain L1, L2, L3, L4 and P1 exactly once.",
         )
     if report.get("verdict") == "PASS":
         statuses = {row.get("status") for row in report["criteria"]}
@@ -111,6 +113,8 @@ def verify_m2b_for_language(m2b_run_dir: Path) -> dict:
     summary = load_json(m2b_run_dir / "summary.json")
     if summary.get("stage") != "M2b" or summary.get("status") != "COMPLETED":
         raise RoleRunnerError("BLOCKED_INPUT", "Input directory is not a completed M2b run.")
+    if summary.get("rubric_version") != RUBRIC_VERSION:
+        raise RoleRunnerError("BLOCKED_INPUT", "M2b run uses an obsolete rubric version.")
     if summary.get("artifact_unchanged") is not True:
         raise RoleRunnerError("BLOCKED_INPUT", "M2b did not preserve the M2a artifact.")
     if summary.get("all_examples_passed") is not True:
@@ -132,6 +136,8 @@ def verify_m2b_for_language(m2b_run_dir: Path) -> dict:
     content_report = load_json(m2b_run_dir / "judge-report-with-execution.json")
     if content_report.get("artifact_sha256") != artifact_sha256:
         raise RoleRunnerError("BLOCKED_INPUT", "Content report evaluates a different artifact.")
+    if content_report.get("rubric_version") != RUBRIC_VERSION:
+        raise RoleRunnerError("BLOCKED_INPUT", "Content report uses an obsolete rubric version.")
     if content_report.get("verdict") != "PASS":
         raise RoleRunnerError("BLOCKED_INPUT", "Stored content report is not PASS.")
 
@@ -161,8 +167,9 @@ def build_language_payload(config: dict, artifact: dict, artifact_sha256: str) -
     return {
         "role_instructions": LANGUAGE_PROMPT.read_text(encoding="utf-8"),
         "brief": config["brief"],
+        "audience_profile": audience_for(config),
         "language": config["language"],
-        "rubric_version": "0.1",
+        "rubric_version": RUBRIC_VERSION,
         "rubric": RUBRIC.read_text(encoding="utf-8"),
         "artifact_sha256": artifact_sha256,
         "canonical_text": {
@@ -173,8 +180,9 @@ def build_language_payload(config: dict, artifact: dict, artifact_sha256: str) -
         "constraints": [
             "You are a fresh independent language judge.",
             "You do not receive the author history, author reasoning, content-judge report, content-judge verdict, execution evidence or source pack.",
-            "Evaluate only the canonical spoken narration and its fit to the brief.",
+            "Evaluate only the canonical spoken narration and its fit to the brief and audience profile.",
             "For L1 assess terminological precision in wording, but do not independently certify factual correctness.",
+            "For L4 reject polished but infantilizing narration that teaches assumed knowledge instead of the relevant technical content.",
             "For P1 verify that your report names the supplied artifact hash and rubric version; independence is enforced by the orchestrator.",
             "Do not edit or rewrite the narration. Return only the evaluation report.",
             "Do not invent a target number of findings.",
@@ -224,6 +232,8 @@ def m2c_language(m2b_run_dir: str) -> dict:
         "audio_called": False,
         "render_called": False,
         "revision_cycle": 0,
+        "rubric_version": RUBRIC_VERSION,
+        "audience_profile": config.get("audience_profile"),
         "source_m2b_run": str(input_dir),
         "reports": str(run_dir),
     }
@@ -251,6 +261,8 @@ def m2c_language(m2b_run_dir: str) -> dict:
             "lesson_id": config["lesson_id"],
             "artifact_sha256": verified["artifact_sha256"],
             "source_pack_sha256": verified["source_pack_sha256"],
+            "rubric_version": RUBRIC_VERSION,
+            "audience_profile": config.get("audience_profile"),
             "content_judge": {
                 "status": "PASS",
                 "session_id": verified["m2b_summary"]["judge_session_id"],
