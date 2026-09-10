@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "expected_runtime": "3.14.7",
+  "examples": [
+    {"example_id": "add", "input": "2 + 2", "expected_stdout": "4\n"},
+    {"example_id": "precedence", "input": "50 - 5*6", "expected_stdout": "20\n"},
+    {"example_id": "parentheses", "input": "(50 - 5*6) / 4", "expected_stdout": "5.0\n"},
+    {"example_id": "true-division", "input": "8 / 5", "expected_stdout": "1.6\n"},
+    {"example_id": "floor-division", "input": "17 // 3", "expected_stdout": "5\n"},
+    {"example_id": "floor-division-negative", "input": "-17 // 3", "expected_stdout": "-6\n"},
+    {"example_id": "remainder", "input": "17 % 3", "expected_stdout": "2\n"},
+    {"example_id": "quotient-remainder-identity", "input": "5 * 3 + 2", "expected_stdout": "17\n"},
+    {"example_id": "power-square", "input": "5 ** 2", "expected_stdout": "25\n"},
+    {"example_id": "power-seven", "input": "2 ** 7", "expected_stdout": "128\n"},
+    {"example_id": "assign-width", "input": "width = 20", "expected_stdout": ""},
+    {"example_id": "assign-height", "input": "height = 5 * 9", "expected_stdout": ""},
+    {"example_id": "use-assignment", "input": "width * height", "expected_stdout": "900\n"},
+    {"example_id": "underscore-reset", "input": "5", "expected_stdout": "5\n"},
+    {"example_id": "underscore-read", "input": "_", "expected_stdout": "5\n"},
+    {"example_id": "underscore-use", "input": "_ + _", "expected_stdout": "10\n"}
+  ]
+}
