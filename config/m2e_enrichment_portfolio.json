@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "soft_budget_seconds": 45,
+  "hard_budget_seconds": 65,
+  "max_selected_candidates": 3
+}
