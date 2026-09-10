@@ -10,9 +10,19 @@ różnice względem innych języków lub trybów uruchomienia, użyteczne powią
 krótkie ciekawostki techniczne. Kandydat musi dobrze sklejać się z aktualnym
 tematem; nie wolno dodawać dygresji tylko dlatego, że jest prawdziwa lub ciekawa.
 
+Profil `technical_competent` nie oznacza eksperta od Pythona. Nie tłumaczaj
+podstaw informatyki ani oczywistej arytmetyki, ale aktywnie szukaj rzeczy
+specyficznych dla Pythona: cichych pułapek, różnic notacyjnych, semantycznych
+krawędzi i alternatywnych sposobów uruchamiania kodu.
+
+Przed zakończeniem przejrzyj KAŻDE źródło w enrichment source pack i rozważ, czy
+wnosi ono wartościowego kandydata dla tej lekcji. Nie musisz tworzyć kandydata z
+każdego źródła, ale nie pomijaj źródła tylko dlatego, że jego treści nie ma w
+materiale głównym. W `search_summary` krótko odnotuj źródła, które rozważyłeś,
+i dlaczego nie dały kandydata, jeśli zostały pominięte.
+
 Nie ma wymaganej liczby kandydatów. Zwrócenie pustej listy jest poprawnym
-wynikiem. Słaby enrichment jest gorszy niż brak enrichmentu. Nie tłumacz wiedzy,
-którą profil odbiorcy uznaje za oczywistą.
+wynikiem. Słaby enrichment jest gorszy niż brak enrichmentu.
 
 Każdy kandydat ma wskazać miejsce wpięcia, krótki tekst proponowanej narracji,
 wartość dodaną, koszt czasowy, jawne źródła wsparcia oraz sposób późniejszej
