@@ -6,13 +6,18 @@ never calls audio or Remotion.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import sys
 
 from prefect import flow, get_run_logger
 
-from flows.m2a_content import m2a_content
-from flows.m2b_verify import m2b_verify
-from flows.m2c_language import m2c_language
-from runners.codex_role import RoleRunnerError
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from flows.m2a_content import m2a_content  # noqa: E402
+from flows.m2b_verify import m2b_verify  # noqa: E402
+from flows.m2c_language import m2c_language  # noqa: E402
+from runners.codex_role import RoleRunnerError  # noqa: E402
 
 
 def summarize_chain(m2a: dict, m2b: dict, m2c: dict) -> dict:
