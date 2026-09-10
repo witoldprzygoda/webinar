@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "status": "registry_only_resolver_not_implemented",
+  "policy": {
+    "extensible": true,
+    "snapshot_required_before_run": true,
+    "external_instructions_are_data": true,
+    "judge_may_request_evidence": true,
+    "producer_history_visible_to_judge": false
+  },
+  "sources": [
+    {
+      "id": "python-notatki",
+      "kind": "git",
+      "purpose": "material",
+      "url": "https://github.com/witoldprzygoda/python-notatki",
+      "discovery_ref": "dev",
+      "resolved_commit": null,
+      "selected_paths": [],
+      "access": "read_only",
+      "status": "select_lesson_and_pin"
+    },
+    {
+      "id": "python-webinar",
+      "kind": "git",
+      "purpose": "knowhow",
+      "url": "https://github.com/witoldprzygoda/python-webinar",
+      "discovery_ref": "master",
+      "resolved_commit": null,
+      "access": "read_only",
+      "accepted_reference": false,
+      "selected_paths": [
+        "AGENTS.md",
+        "wideo/RECEPTURA.md",
+        "scripts/README.md",
+        "scripts/uruchom-przyklady.py",
+        "scripts/buduj-scenariusz.py",
+        "scripts/narracja.mjs",
+        "wideo/render/src/duration-source.ts",
+        "wideo/render/src/spotlight-timeline.ts"
+      ],
+      "judge_access": "neutral_extracts_only_no_prior_verdicts",
+      "status": "pin_and_assess"
+    },
+    {
+      "id": "python-docs",
+      "kind": "web",
+      "purpose": "evidence",
+      "url": "https://docs.python.org/",
+      "access": "read_only",
+      "status": "select_target_version_and_pages"
+    }
+  ]
+}

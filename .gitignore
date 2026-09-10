@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.codex/
+.claude/
+auth.json
+runs/
+workspaces/
+artifacts/
+node_modules/
+*.mp3
+*.wav
+*.mp4
+*.log

@@ -1,0 +1,2 @@
+# Bootstrap only; freeze exact versions after local integration test.
+prefect>=3,<4
