@@ -6,8 +6,9 @@ ustawiała zakładany poziom kompetencji odbiorcy (m.in. objaśnianie oczywistyc
 symboli i promptu). To jest wada systemowa, nie pojedyncza korekta stylistyczna.
 
 Od rubric 0.2 każda lekcja musi jawnie wskazać `audience_profile`. Domyślny profil
-pierwszego kursu to `cs_year3`: studenci III roku informatyki / technicznie biegli
-odbiorcy. Profil rozdziela wiedzę zakładaną od treści, które należy wyjaśniać.
+pierwszego kursu to `technical_competent`: odbiorcy z kompetencjami informatycznymi.
+Profil nie zakłada konkretnego roku studiów. Rozdziela wiedzę zakładaną od treści,
+które rzeczywiście należy wyjaśniać.
 
 Nowe kryterium L4 wymaga, aby poziom przekazu odpowiadał temu profilowi. Tekst
 może być poprawny faktograficznie i językowo, a mimo to otrzymać REVISE za
