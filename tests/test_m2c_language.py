@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from flows.m2a_content import canonical_hash
+from flows.m2a_content import RUBRIC_VERSION, canonical_hash
 from flows.m2c_language import (
     LANGUAGE_CRITERIA,
     build_language_payload,
@@ -36,7 +36,7 @@ def artifact() -> dict:
 def passing_language_report(sha: str) -> dict:
     return {
         "artifact_sha256": sha,
-        "rubric_version": "0.1",
+        "rubric_version": RUBRIC_VERSION,
         "role": "judge_language",
         "verdict": "PASS",
         "criteria": [
@@ -65,6 +65,8 @@ def build_run_tree(root: Path) -> tuple[Path, Path, str]:
     (m2a / "source-pack.json").write_text(json.dumps(pack), encoding="utf-8")
     (m2a / "summary.json").write_text(json.dumps({
         "stage": "M2a", "status": "COMPLETED",
+        "rubric_version": RUBRIC_VERSION,
+        "audience_profile": "cs_year3",
         "artifact_sha256": art_hash,
         "source_pack_sha256": pack["source_pack_sha256"],
         "author_session_id": "author-session",
@@ -81,10 +83,13 @@ def build_run_tree(root: Path) -> tuple[Path, Path, str]:
     (m2b / "execution-evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
     (m2b / "judge-report-with-execution.json").write_text(json.dumps({
         "artifact_sha256": art_hash,
+        "rubric_version": RUBRIC_VERSION,
         "verdict": "PASS",
     }), encoding="utf-8")
     (m2b / "summary.json").write_text(json.dumps({
         "stage": "M2b", "status": "COMPLETED",
+        "rubric_version": RUBRIC_VERSION,
+        "audience_profile": "cs_year3",
         "source_m2a_run": str(m2a),
         "artifact_sha256": art_hash,
         "artifact_unchanged": True,
@@ -99,12 +104,14 @@ def build_run_tree(root: Path) -> tuple[Path, Path, str]:
 
 
 class M2cTests(unittest.TestCase):
-    def test_schema_has_exact_language_criteria(self):
+    def test_schema_has_exact_language_criteria_including_l4(self):
         schema = language_schema("a" * 64)
         enum = schema["properties"]["criteria"]["items"]["properties"]["criterion_id"]["enum"]
         self.assertEqual(tuple(enum), LANGUAGE_CRITERIA)
-        self.assertEqual(schema["properties"]["criteria"]["minItems"], 4)
-        self.assertEqual(schema["properties"]["criteria"]["maxItems"], 4)
+        self.assertEqual(LANGUAGE_CRITERIA, ("L1", "L2", "L3", "L4", "P1"))
+        self.assertEqual(schema["properties"]["criteria"]["minItems"], 5)
+        self.assertEqual(schema["properties"]["criteria"]["maxItems"], 5)
+        self.assertEqual(schema["properties"]["rubric_version"]["enum"], ["0.2"])
 
     def test_valid_pass_report(self):
         validate_language_report(passing_language_report("a" * 64))
@@ -122,7 +129,7 @@ class M2cTests(unittest.TestCase):
             validate_language_report(report)
 
     def test_language_packet_excludes_content_review_and_execution(self):
-        config = {"brief": "brief", "language": "pl"}
+        config = {"brief": "brief", "language": "pl", "audience_profile": "cs_year3"}
         payload = build_language_payload(config, artifact(), "a" * 64)
         self.assertNotIn("source_pack", payload)
         self.assertNotIn("execution_evidence", payload)
@@ -132,12 +139,14 @@ class M2cTests(unittest.TestCase):
         self.assertNotIn("first-content-session", flattened)
         self.assertNotIn("second-content-session", flattened)
 
-    def test_language_packet_contains_only_spoken_artifact_view(self):
-        config = {"brief": "brief", "language": "pl"}
+    def test_language_packet_contains_audience_and_only_spoken_artifact_view(self):
+        config = {"brief": "brief", "language": "pl", "audience_profile": "cs_year3"}
         payload = build_language_payload(config, artifact(), "a" * 64)
+        self.assertEqual(payload["audience_profile"]["profile_id"], "cs_year3")
         self.assertEqual(set(payload["canonical_text"]), {"title", "narration"})
         self.assertNotIn("claims", payload["canonical_text"])
         self.assertEqual(payload["evaluation_scope"], list(LANGUAGE_CRITERIA))
+        self.assertIn("L4", payload["evaluation_scope"])
 
     def test_completed_passing_m2b_is_accepted(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +154,16 @@ class M2cTests(unittest.TestCase):
             verified = verify_m2b_for_language(m2b)
         self.assertEqual(verified["artifact_sha256"], art_hash)
         self.assertEqual(len(verified["previous_sessions"]), 3)
+
+    def test_obsolete_rubric_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, m2b, _ = build_run_tree(Path(tmp))
+            summary_path = m2b / "summary.json"
+            summary = json.loads(summary_path.read_text())
+            summary["rubric_version"] = "0.1"
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            with self.assertRaises(RoleRunnerError):
+                verify_m2b_for_language(m2b)
 
     def test_nonpassing_content_judge_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
