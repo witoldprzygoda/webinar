@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "profiles": {
-    "cs_year3": {
-      "label": "Studenci III roku informatyki / technicznie biegli odbiorcy",
+    "technical_competent": {
+      "label": "Odbiorcy z kompetencjami informatycznymi",
       "assumed_knowledge": [
-        "Swobodne posługiwanie się komputerem, terminalem, edytorem i typowymi środowiskami programistycznymi.",
-        "Znajomość podstaw programowania oraz elementarnej notacji arytmetycznej i operatorów.",
+        "Sprawne posługiwanie się komputerem i typowymi narzędziami używanymi podczas nauki lub pracy z kodem.",
+        "Znajomość podstawowych pojęć programistycznych oraz elementarnej notacji arytmetycznej i operatorów.",
         "Brak potrzeby objaśniania oczywistych symboli i elementów interfejsu tylko dlatego, że pojawiają się na ekranie."
       ],
       "teach_explicitly": [
         "Semantykę i zachowania specyficzne dla Pythona.",
-        "Różnice, które mogą być nieoczywiste nawet dla osoby znającej inne języki programowania.",
-        "Pułapki, subtelności wersji, ważne konsekwencje praktyczne i wzorce użycia."
+        "Konwencje środowiska, które są potrzebne do zrozumienia przykładu, ale nie są oczywiste dla technicznie kompetentnego odbiorcy.",
+        "Różnice, pułapki, subtelności wersji, ważne konsekwencje praktyczne i wzorce użycia."
       ],
       "avoid_by_default": [
         "Objaśnianie, że plus oznacza dodawanie lub że gwiazdka jest operatorem mnożenia.",
@@ -20,7 +20,7 @@
         "Ton szkolny, przesadnie opiekuńczy, infantylizujący albo zakładający brak podstawowych kompetencji komputerowych."
       ],
       "preferred_level": "Akademicki, techniczny i zwarty. Zakłada kompetentnego odbiorcę; czas poświęca na semantykę, mechanizm, konsekwencje i rzeczy nieoczywiste.",
-      "calibration_rule": "Prostota tematu nie uzasadnia obniżenia poziomu odbiorcy. Wprowadzenie do przykładu może być krótkie, ale nie może zastępować treści technicznej opisem oczywistości."
+      "calibration_rule": "Poziom wynika z kompetencji odbiorcy, nie z roku studiów. Prostota tematu nie uzasadnia obniżenia poziomu przekazu. Wprowadzenie do przykładu może być krótkie, ale nie może zastępować treści technicznej opisem oczywistości."
     }
   }
 }
