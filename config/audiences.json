@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "cs_year3": {
+      "label": "Studenci III roku informatyki / technicznie biegli odbiorcy",
+      "assumed_knowledge": [
+        "Swobodne posługiwanie się komputerem, terminalem, edytorem i typowymi środowiskami programistycznymi.",
+        "Znajomość podstaw programowania oraz elementarnej notacji arytmetycznej i operatorów.",
+        "Brak potrzeby objaśniania oczywistych symboli i elementów interfejsu tylko dlatego, że pojawiają się na ekranie."
+      ],
+      "teach_explicitly": [
+        "Semantykę i zachowania specyficzne dla Pythona.",
+        "Różnice, które mogą być nieoczywiste nawet dla osoby znającej inne języki programowania.",
+        "Pułapki, subtelności wersji, ważne konsekwencje praktyczne i wzorce użycia."
+      ],
+      "avoid_by_default": [
+        "Objaśnianie, że plus oznacza dodawanie lub że gwiazdka jest operatorem mnożenia.",
+        "Literowanie lub opisywanie oczywistych znaków promptu, np. tłumaczenie >>> jako trzech znaków większości.",
+        "Narracyjne opisywanie każdego widocznego elementu ekranu zamiast omawiania jego znaczenia.",
+        "Ton szkolny, przesadnie opiekuńczy, infantylizujący albo zakładający brak podstawowych kompetencji komputerowych."
+      ],
+      "preferred_level": "Akademicki, techniczny i zwarty. Zakłada kompetentnego odbiorcę; czas poświęca na semantykę, mechanizm, konsekwencje i rzeczy nieoczywiste.",
+      "calibration_rule": "Prostota tematu nie uzasadnia obniżenia poziomu odbiorcy. Wprowadzenie do przykładu może być krótkie, ale nie może zastępować treści technicznej opisem oczywistości."
+    }
+  }
+}
