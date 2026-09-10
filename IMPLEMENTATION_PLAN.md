@@ -32,18 +32,60 @@ kontrakt swiezych sesji.
 
 ## M2: pierwszy kompletny przeplyw merytoryczny
 
-Resolver -> source-pack -> autor -> executor przykladow -> osobni sedziowie
--> arbiter w razie potrzeby -> poprawka -> nowa ocena -> GATE A czlowieka.
-Odbior: poprawny tekst, dowody, pokrycie zakresu, restart bez utraty pracy.
+Stan: pierwszy pionowy wycinek zakonczony Gate A dla lekcji
+`python-console-calculator`.
 
-Pierwszy pionowy wycinek M2 bedzie mniejszy: source-pack -> author ->
-judge_content, z jawnymi packetami M1 i bez audio/Remotion. Potem dolozymy
-executor, judge_language, arbitra i petle rewizji.
+Zaimplementowano:
+
+- jawny profil odbiorcy `technical_competent` i kryterium L4;
+- przypiete materialy/evidence oraz source-pack z hashem;
+- autora z artifact-bound `execution_plan`;
+- rzeczywiste wykonanie przykladow w CPython 3.14.7;
+- niezaleznych judge-content i judge-language;
+- normalny stan biznesowy `REVISION_REQUIRED` bez tracebacka;
+- fakultatywny enrichment scout, niezalezna ocene kandydatow i arbitraz MAYBE;
+- portfolio enrichmentu z osobna rubric 0.2, soft/hard budget i ocena wartosci
+  marginalnej calego zestawu;
+- integrator zachowujacy zaakceptowany rdzen oraz ponowne wykonanie i pelna
+  rewalidacje wzbogaconego artefaktu;
+- osobne evidence dla REPL i rzeczywistego `python -c`;
+- human-readable Gate A review.
+
+Artefakt `65202b7e279ddb983eb0ee7488919ec3f095ed2c5a4ba2891c6e702bb094a18c`
+zostal jawnie zaakceptowany przez czlowieka w rozmowie 11.09.2026. Lokalny,
+audytowalny receipt zapisuje `scripts/record_gate_a_approval.py`; kolejne etapy
+nie moga ruszyc bez receipt dla dokladnie tego hasha.
+
+Petla automatycznych rewizji do trzech cykli pozostaje elementem do dalszego
+uogolnienia. Pierwszy wycinek wykazal poprawne stany PASS/REVISE i zaleznosci
+hash/evidence bez audio i renderowania.
 
 ## M3: wizualizacja bez glosu
 
-Adaptacja potrzebnych elementow python-webinar. Dwa warianty fragmentu,
-wybor, podglad z napisami, semantyczne wskazanie, niezalezna ocena i GATE B.
+M3a zaimplementowane jako pierwszy test projektowania scen po Gate A.
+`flows/m3a_scene_variants.py` wymaga zweryfikowanego `gate-a-approval.json`,
+przyjmuje niezmienny zaakceptowany artefakt i proponuje trzy rzeczywiscie rozne
+warianty realizacji jednego fragmentu. Pierwszy fragment kalibracyjny to
+`frag-07`, czyli sekwencja z nazwa `_` i zmieniajacym sie ostatnim wynikiem.
+
+Projektant dostaje tylko zaakceptowana narracje targetu, powiazane rzeczywiste
+wyniki wykonania i jawny, przypiety know-how pack. Pierwszy know-how snapshot
+uzywa `python-webinar` commit `f9447818061a10b035ee8ad5cb84ef22a9c9deeb`,
+`wideo/RECEPTURA.md`. Warianty uzywaja semantycznych element_id i beat_id, bez
+pikseli, bez bezwzglednych sekund, bez audio i bez zmiany Gate A.
+
+Nastepne kroki M3 po wyborze wariantu przez czlowieka:
+
+1. zapis human variant selection dla konkretnego `scene-variants` hasha;
+2. scene-plan.json calej lekcji;
+3. implementacja/adaptacja potrzebnych komponentow Remotion;
+4. roboczy timing i podglad bez glosu;
+5. automatyczna kontrola techniczna oraz niezalezny judge-visual na rzeczywistym
+   podgladzie;
+6. GATE B czlowieka.
+
+Zmiana tresci wymuszona wizualizacja zawsze wraca do Gate A zamiast byc
+przemycona przez projektanta scen.
 
 ## M4: audio i final
 
