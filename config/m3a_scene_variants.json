@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "target_runtime": "Python 3.14",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "target_fragment_ids": ["frag-07"],
+  "variant_count": 3,
+  "sources": [
+    {
+      "id": "material-console-calculator",
+      "role": "material",
+      "repository": "witoldprzygoda/python-notatki",
+      "commit": "0bccb67f308b82b9e14833b3baffa56bcad16222",
+      "path": "docs/02-konsola/konsola-w-praktyce.md",
+      "section_start": "## Konsola jako kalkulator",
+      "section_end": "## Funkcja print"
+    },
+    {
+      "id": "knowhow-python-webinar-receptura",
+      "role": "knowhow",
+      "repository": "witoldprzygoda/python-webinar",
+      "commit": "f9447818061a10b035ee8ad5cb84ef22a9c9deeb",
+      "path": "wideo/RECEPTURA.md"
+    }
+  ]
+}
