@@ -3,6 +3,7 @@
   "lesson_id": "python-console-calculator",
   "language": "pl",
   "target_runtime": "Python 3.14",
+  "execution_runtime": "3.14.7",
   "model": "gpt-6-astra",
   "reasoning_effort": "high",
   "audience_profile": "technical_competent",
