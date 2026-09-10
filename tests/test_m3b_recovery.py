@@ -24,8 +24,8 @@ class M3bRecoveryTests(unittest.TestCase):
                 {
                     "example_id": "e-other",
                     "fragment_ids": ["other"],
-                    "input": "8 / 5",
-                    "actual_stdout": "1.6\n",
+                    "input": "17 // 3",
+                    "actual_stdout": "5\n",
                 },
             ],
             "enrichment_checks": [],
@@ -60,6 +60,7 @@ class M3bRecoveryTests(unittest.TestCase):
         self.assertEqual(len(ref_changes), 1)
         self.assertEqual(ref_changes[0]["old_source_ref"], "e2")
         self.assertEqual(ref_changes[0]["new_source_ref"], "e1")
+        self.assertEqual(ref_changes[0]["match_scope"], "scene_fragments")
         self.assertEqual(normalizations, [])
 
     def test_trailing_newline_is_canonicalized_and_wrong_ref_is_rebound(self):
@@ -104,11 +105,24 @@ class M3bRecoveryTests(unittest.TestCase):
         self.assertEqual(ref_changes, [])
         self.assertEqual(normalizations, [])
 
-    def test_matching_row_from_other_fragment_is_not_used(self):
-        evidence = self.evidence()
-        evidence["core_examples"] = [evidence["core_examples"][2]]
-        with self.assertRaises(M3bRecoveryError):
-            repair_evidence_refs(self.plan(), evidence)
+    def test_valid_binding_from_other_fragment_is_accepted(self):
+        plan = self.plan(source_ref="e-other", content="17 // 3")
+        plan["scenes"][0]["visible_elements"][0]["kind"] = "code"
+        repaired, ref_changes, normalizations = repair_evidence_refs(plan, self.evidence())
+        self.assertEqual(repaired["scenes"][0]["visible_elements"][0]["source_ref"], "e-other")
+        self.assertEqual(ref_changes, [])
+        self.assertEqual(normalizations, [])
+
+    def test_unique_row_from_other_fragment_can_be_rebound_globally(self):
+        plan = self.plan(source_ref="e2", content="17 // 3")
+        plan["scenes"][0]["visible_elements"][0]["kind"] = "code"
+        repaired, ref_changes, normalizations = repair_evidence_refs(plan, self.evidence())
+        element = repaired["scenes"][0]["visible_elements"][0]
+        self.assertEqual(element["source_ref"], "e-other")
+        self.assertEqual(element["content"], "17 // 3")
+        self.assertEqual(len(ref_changes), 1)
+        self.assertEqual(ref_changes[0]["match_scope"], "global_unique")
+        self.assertEqual(normalizations, [])
 
     def test_ambiguous_same_fragment_match_is_rejected(self):
         evidence = self.evidence()
@@ -120,6 +134,19 @@ class M3bRecoveryTests(unittest.TestCase):
         })
         with self.assertRaises(M3bRecoveryError):
             repair_evidence_refs(self.plan(), evidence)
+
+    def test_ambiguous_global_fallback_is_rejected(self):
+        evidence = self.evidence()
+        evidence["core_examples"].append({
+            "example_id": "e-other-2",
+            "fragment_ids": ["other-2"],
+            "input": "17 // 3",
+            "actual_stdout": "5\n",
+        })
+        plan = self.plan(source_ref="e2", content="17 // 3")
+        plan["scenes"][0]["visible_elements"][0]["kind"] = "code"
+        with self.assertRaises(M3bRecoveryError):
+            repair_evidence_refs(plan, evidence)
 
     def test_invented_output_is_rejected(self):
         with self.assertRaises(M3bRecoveryError):
