@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import unittest
 
 from flows.m2a_content import (
@@ -107,11 +106,12 @@ class ArtifactContractTests(unittest.TestCase):
             {"F1", "F2", "E1", "E2", "L1", "L2", "L3", "L4", "D1", "P1"},
         )
 
-    def test_lesson_resolves_explicit_cs_year3_profile(self):
-        profile = audience_for({"audience_profile": "cs_year3"})
-        self.assertEqual(profile["profile_id"], "cs_year3")
+    def test_lesson_resolves_explicit_technical_profile(self):
+        profile = audience_for({"audience_profile": "technical_competent"})
+        self.assertEqual(profile["profile_id"], "technical_competent")
         flattened = json.dumps(profile, ensure_ascii=False)
-        self.assertIn("III roku informatyki", flattened)
+        self.assertIn("kompetencjami informatycznymi", flattened)
+        self.assertIn("nie z roku studiów", flattened)
         self.assertIn("infantyliz", flattened)
         self.assertIn("oczywist", flattened)
 
