@@ -5,8 +5,10 @@ semantic output, beats, or visual design decisions. It may only:
 
 1. remove trailing CR/LF characters from evidence-backed output/state content;
 2. rebind source_ref to another existing example_id/check_id when the canonical
-   content has exactly one matching evidence row linked to the same scene
-   narration fragments.
+   content identifies exactly one evidence row. Matching prefers evidence linked
+   to the current scene fragments, but may fall back to a globally unique row
+   because the M3b validator permits verified examples to be reused as visual
+   context in later scenes.
 
 The original failed M3b run remains untouched; a successful recovery creates a
 new M3b run and records every permitted change.
@@ -51,7 +53,7 @@ def _candidate_rows(
     provenance: str,
     *,
     evidence: dict[str, Any],
-    scene_fragment_ids: set[str],
+    scene_fragment_ids: set[str] | None,
 ) -> list[tuple[str, dict[str, Any]]]:
     if provenance == "core_example":
         rows = evidence.get("core_examples", [])
@@ -67,11 +69,12 @@ def _candidate_rows(
         if not isinstance(row, dict):
             continue
         ref = row.get(key)
-        refs = row.get("fragment_ids", [])
         if not isinstance(ref, str) or not ref:
             continue
-        if not isinstance(refs, list) or not scene_fragment_ids.intersection(refs):
-            continue
+        if scene_fragment_ids is not None:
+            refs = row.get("fragment_ids", [])
+            if not isinstance(refs, list) or not scene_fragment_ids.intersection(refs):
+                continue
         candidates.append((ref, row))
     return candidates
 
@@ -84,6 +87,20 @@ def _row_value(row: dict[str, Any], provenance: str, kind: str) -> str | None:
         value = _canonical_output(row.get("actual_stdout", ""))
         return value or None
     return None
+
+
+def _matching_rows(
+    rows: list[tuple[str, dict[str, Any]]],
+    *,
+    provenance: str,
+    kind: str,
+    content: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (ref, row)
+        for ref, row in rows
+        if _row_value(row, provenance, kind) == content
+    ]
 
 
 def repair_evidence_refs(
@@ -130,30 +147,54 @@ def repair_evidence_refs(
                     })
                     content = canonical
 
-            rows = _candidate_rows(
+            all_rows = _candidate_rows(
+                provenance,
+                evidence=evidence,
+                scene_fragment_ids=None,
+            )
+            current = [row for ref, row in all_rows if ref == old_ref]
+            if len(current) == 1 and _row_value(current[0], provenance, kind) == content:
+                continue
+
+            scene_rows = _candidate_rows(
                 provenance,
                 evidence=evidence,
                 scene_fragment_ids=fragment_ids,
             )
-            current = [row for ref, row in rows if ref == old_ref]
-            if len(current) == 1 and _row_value(current[0], provenance, kind) == content:
-                continue
-
-            matches = [
-                (ref, row)
-                for ref, row in rows
-                if _row_value(row, provenance, kind) == content
-            ]
-            if len(matches) != 1:
-                if not matches:
-                    raise M3bRecoveryError(
-                        f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
-                        "matches no evidence row in the scene fragments."
-                    )
+            scene_matches = _matching_rows(
+                scene_rows,
+                provenance=provenance,
+                kind=kind,
+                content=content,
+            )
+            if len(scene_matches) == 1:
+                matches = scene_matches
+                match_scope = "scene_fragments"
+            elif len(scene_matches) > 1:
                 raise M3bRecoveryError(
                     f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
                     "matches multiple evidence rows in the scene fragments."
                 )
+            else:
+                global_matches = _matching_rows(
+                    all_rows,
+                    provenance=provenance,
+                    kind=kind,
+                    content=content,
+                )
+                if len(global_matches) == 1:
+                    matches = global_matches
+                    match_scope = "global_unique"
+                elif not global_matches:
+                    raise M3bRecoveryError(
+                        f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
+                        "matches no evidence row globally."
+                    )
+                else:
+                    raise M3bRecoveryError(
+                        f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
+                        "matches multiple evidence rows globally and none is uniquely linked to the scene."
+                    )
 
             new_ref = matches[0][0]
             element["source_ref"] = new_ref
@@ -165,6 +206,7 @@ def repair_evidence_refs(
                 "content": content,
                 "old_source_ref": str(old_ref or ""),
                 "new_source_ref": new_ref,
+                "match_scope": match_scope,
             })
 
     return repaired, ref_changes, content_normalizations
@@ -214,7 +256,7 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
         (json.dumps(repaired, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     )
     recovery_report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "recovery_kind": "evidence_binding_and_stdout_canonicalization",
         "source_failed_m3b_run": str(failed_run_dir),
         "source_designer_session_id": receipt.get("session_id"),
@@ -222,6 +264,7 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
         "llm_called": False,
         "semantic_content_changed": False,
         "allowed_content_normalization": "remove_trailing_crlf_only",
+        "binding_policy": "prefer_scene_fragment_match_then_global_unique",
         "content_normalizations": content_normalizations,
         "content_normalization_count": len(content_normalizations),
         "source_ref_changes": ref_changes,
