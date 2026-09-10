@@ -1,7 +1,8 @@
 """Deterministic execution evidence for Python console examples.
 
-No LLM is involved. The executor runs a fixed manifest under an exact CPython
-runtime and records inputs, outputs, runtime identity and hashes.
+No LLM is involved. The executor supports the legacy fixed manifest and the
+current artifact-bound execution plan. Both run under an exact CPython runtime
+and record inputs, outputs, runtime identity and hashes.
 """
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any
@@ -28,21 +30,25 @@ EXEC_ENV_ALLOWLIST = {
 }
 
 HELPER = r'''
-import code, contextlib, io, json, platform, sys
+import builtins, code, contextlib, io, json, platform, sys
 request=json.load(sys.stdin)
-console=code.InteractiveConsole({})
 results=[]
-for item in request["examples"]:
-    out=io.StringIO(); err=io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        more=console.push(item["input"])
-    results.append({
-        "example_id": item["example_id"],
-        "input": item["input"],
-        "stdout": out.getvalue(),
-        "stderr": err.getvalue(),
-        "incomplete": bool(more),
-    })
+for session in request["sessions"]:
+    if hasattr(builtins, "_"):
+        delattr(builtins, "_")
+    console=code.InteractiveConsole({})
+    for item in session["steps"]:
+        out=io.StringIO(); err=io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            more=console.push(item["input"])
+        results.append({
+            "session_id": session["session_id"],
+            "example_id": item["example_id"],
+            "input": item["input"],
+            "stdout": out.getvalue(),
+            "stderr": err.getvalue(),
+            "incomplete": bool(more),
+        })
 print(json.dumps({
     "runtime": {
         "implementation": platform.python_implementation(),
@@ -66,7 +72,13 @@ def execution_environment(source: dict[str, str] | None = None) -> dict[str, str
     return {key: value for key, value in source.items() if key.upper() in EXEC_ENV_ALLOWLIST}
 
 
+def _validate_input(value: str, label: str) -> None:
+    if not isinstance(value, str) or not value.strip() or "\n" in value or "\r" in value:
+        raise ExecutionEvidenceError("INVALID_MANIFEST", f"{label} must be one complete console input.")
+
+
 def validate_manifest(manifest: dict[str, Any]) -> None:
+    """Validate legacy v1 manifest with predeclared stdout expectations."""
     if set(manifest) != {"schema_version", "expected_runtime", "examples"}:
         raise ExecutionEvidenceError("INVALID_MANIFEST", "Unexpected execution manifest fields.")
     if manifest["schema_version"] != 1:
@@ -84,9 +96,53 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             raise ExecutionEvidenceError("INVALID_MANIFEST", "Example fields must be strings.")
         if not item["example_id"] or item["example_id"] in seen:
             raise ExecutionEvidenceError("INVALID_MANIFEST", "Example ids must be unique and non-empty.")
-        if "\n" in item["input"] or "\r" in item["input"] or not item["input"].strip():
-            raise ExecutionEvidenceError("INVALID_MANIFEST", "M2b accepts one complete console input per example.")
+        _validate_input(item["input"], f"Example {item['example_id']}")
         seen.add(item["example_id"])
+
+
+def validate_execution_plan(plan: dict[str, Any]) -> None:
+    """Validate artifact-bound plan. It contains no expected stdout."""
+    if not isinstance(plan, dict) or set(plan) != {"schema_version", "sessions"}:
+        raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Unexpected execution plan fields.")
+    if plan["schema_version"] != 1:
+        raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Unsupported execution plan version.")
+    sessions = plan["sessions"]
+    if not isinstance(sessions, list) or not sessions:
+        raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Execution plan needs at least one session.")
+    session_ids: set[str] = set()
+    example_ids: set[str] = set()
+    for session in sessions:
+        if not isinstance(session, dict) or set(session) != {"session_id", "steps"}:
+            raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Each execution session needs session_id and steps only.")
+        session_id = session["session_id"]
+        if not isinstance(session_id, str) or not session_id or session_id in session_ids:
+            raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Session ids must be unique and non-empty.")
+        session_ids.add(session_id)
+        steps = session["steps"]
+        if not isinstance(steps, list) or not steps:
+            raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Execution session {session_id} has no steps.")
+        for item in steps:
+            required = {"example_id", "fragment_ids", "input", "expected_outcome", "expected_exception"}
+            if not isinstance(item, dict) or set(item) != required:
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Execution steps have an invalid shape.")
+            example_id = item["example_id"]
+            if not isinstance(example_id, str) or not example_id or example_id in example_ids:
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", "Example ids must be globally unique and non-empty.")
+            example_ids.add(example_id)
+            refs = item["fragment_ids"]
+            if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref for ref in refs):
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Example {example_id} needs non-empty fragment_ids.")
+            _validate_input(item["input"], f"Example {example_id}")
+            outcome = item["expected_outcome"]
+            expected_exception = item["expected_exception"]
+            if outcome not in {"success", "exception"}:
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Example {example_id} has invalid expected_outcome.")
+            if not isinstance(expected_exception, str):
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Example {example_id} expected_exception must be a string.")
+            if outcome == "success" and expected_exception:
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Successful example {example_id} must not name an exception.")
+            if outcome == "exception" and not expected_exception:
+                raise ExecutionEvidenceError("INVALID_EXECUTION_PLAN", f"Exception example {example_id} must name expected_exception.")
 
 
 def _probe(prefix: list[str], env: dict[str, str]) -> dict[str, Any] | None:
@@ -149,24 +205,30 @@ def discover_runtime(
     details = "; ".join(observed) if observed else "no usable Python candidate found"
     raise ExecutionEvidenceError(
         "BLOCKED_RUNTIME",
-        f"Exact CPython {expected_runtime} is required for M2b; observed: {details}",
+        f"Exact CPython {expected_runtime} is required; observed: {details}",
     )
 
 
-def run_manifest(
-    manifest: dict[str, Any],
+def _run_sessions(
+    sessions: list[dict[str, Any]],
+    expected_runtime: str,
     *,
     source_env: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> dict[str, Any]:
-    validate_manifest(manifest)
     env = execution_environment(source_env)
-    prefix, _ = discover_runtime(manifest["expected_runtime"], source_env=source_env)
+    prefix, _ = discover_runtime(expected_runtime, source_env=source_env)
     command = [*prefix, "-I", "-S", "-B", "-c", HELPER]
     request = {
-        "examples": [
-            {"example_id": item["example_id"], "input": item["input"]}
-            for item in manifest["examples"]
+        "sessions": [
+            {
+                "session_id": session["session_id"],
+                "steps": [
+                    {"example_id": item["example_id"], "input": item["input"]}
+                    for item in session["steps"]
+                ],
+            }
+            for session in sessions
         ]
     }
     try:
@@ -176,13 +238,9 @@ def run_manifest(
             timeout=timeout, check=False, shell=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ExecutionEvidenceError(
-            "EXECUTION_TIMEOUT", "Example executor timed out; no retry was made."
-        ) from exc
+        raise ExecutionEvidenceError("EXECUTION_TIMEOUT", "Example executor timed out; no retry was made.") from exc
     except OSError as exc:
-        raise ExecutionEvidenceError(
-            "EXECUTION_FAILED", f"Cannot launch target runtime: {exc}"
-        ) from exc
+        raise ExecutionEvidenceError("EXECUTION_FAILED", f"Cannot launch target runtime: {exc}") from exc
     if result.returncode:
         raise ExecutionEvidenceError(
             "EXECUTION_FAILED",
@@ -195,21 +253,101 @@ def run_manifest(
     if not isinstance(raw, dict) or not isinstance(raw.get("results"), list) or not isinstance(raw.get("runtime"), dict):
         raise ExecutionEvidenceError("EXECUTION_FAILED", "Executor result has an invalid shape.")
     runtime = raw["runtime"]
-    if runtime.get("implementation") != "CPython" or runtime.get("version") != manifest["expected_runtime"]:
-        raise ExecutionEvidenceError(
-            "RUNTIME_CHANGED", "Runtime identity changed between preflight and execution."
+    if runtime.get("implementation") != "CPython" or runtime.get("version") != expected_runtime:
+        raise ExecutionEvidenceError("RUNTIME_CHANGED", "Runtime identity changed between preflight and execution.")
+    expected_count = sum(len(session["steps"]) for session in sessions)
+    if len(raw["results"]) != expected_count:
+        raise ExecutionEvidenceError("EXECUTION_FAILED", "Executor returned the wrong number of examples.")
+    return raw
+
+
+def _observed_exception(stderr: str) -> str:
+    matches = re.findall(r"^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception)):\s", stderr, flags=re.MULTILINE)
+    return matches[-1] if matches else ""
+
+
+def run_execution_plan(
+    plan: dict[str, Any],
+    expected_runtime: str,
+    *,
+    source_env: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Run exactly the examples bound to the generated artifact."""
+    validate_execution_plan(plan)
+    raw = _run_sessions(plan["sessions"], expected_runtime, source_env=source_env, timeout=timeout)
+    declared = [
+        (session["session_id"], step)
+        for session in plan["sessions"]
+        for step in session["steps"]
+    ]
+    rows: list[dict[str, Any]] = []
+    for (session_id, expected), actual in zip(declared, raw["results"], strict=True):
+        identity_ok = (
+            actual.get("session_id") == session_id
+            and actual.get("example_id") == expected["example_id"]
+            and actual.get("input") == expected["input"]
         )
-    if len(raw["results"]) != len(manifest["examples"]):
-        raise ExecutionEvidenceError(
-            "EXECUTION_FAILED", "Executor returned the wrong number of examples."
-        )
+        stderr = str(actual.get("stderr", ""))
+        observed_exception = _observed_exception(stderr)
+        if expected["expected_outcome"] == "success":
+            outcome_ok = stderr == ""
+        else:
+            outcome_ok = observed_exception == expected["expected_exception"]
+        complete = actual.get("incomplete") is False
+        rows.append({
+            "session_id": session_id,
+            "example_id": expected["example_id"],
+            "fragment_ids": expected["fragment_ids"],
+            "input": expected["input"],
+            "expected_outcome": expected["expected_outcome"],
+            "expected_exception": expected["expected_exception"],
+            "actual_stdout": actual.get("stdout"),
+            "actual_stderr": stderr,
+            "observed_exception": observed_exception,
+            "input_identity_ok": identity_ok,
+            "outcome_matches": outcome_ok,
+            "complete_input": complete,
+            "pass": bool(identity_ok and outcome_ok and complete),
+        })
+
+    evidence = {
+        "schema_version": 2,
+        "executor": "python-stdlib-interactive-console",
+        "execution_mode": raw.get("execution_mode"),
+        "isolation_flags": ["-I", "-S", "-B"],
+        "runtime_requested": expected_runtime,
+        "runtime": raw["runtime"],
+        "execution_plan_sha256": canonical_sha256(plan),
+        "results": rows,
+        "all_examples_passed": all(row["pass"] for row in rows),
+        "llm_involved": False,
+        "network_used": False,
+    }
+    evidence["execution_evidence_sha256"] = canonical_sha256(evidence)
+    return evidence
+
+
+def run_manifest(
+    manifest: dict[str, Any],
+    *,
+    source_env: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Run legacy fixed manifest. Kept for regression compatibility only."""
+    validate_manifest(manifest)
+    sessions = [{
+        "session_id": "legacy-manifest",
+        "steps": [
+            {"example_id": item["example_id"], "input": item["input"]}
+            for item in manifest["examples"]
+        ],
+    }]
+    raw = _run_sessions(sessions, manifest["expected_runtime"], source_env=source_env, timeout=timeout)
 
     rows: list[dict[str, Any]] = []
     for expected, actual in zip(manifest["examples"], raw["results"], strict=True):
-        identity_ok = (
-            actual.get("example_id") == expected["example_id"]
-            and actual.get("input") == expected["input"]
-        )
+        identity_ok = actual.get("example_id") == expected["example_id"] and actual.get("input") == expected["input"]
         stdout_ok = actual.get("stdout") == expected["expected_stdout"]
         stderr_ok = actual.get("stderr") == ""
         complete = actual.get("incomplete") is False
@@ -232,7 +370,7 @@ def run_manifest(
         "execution_mode": raw.get("execution_mode"),
         "isolation_flags": ["-I", "-S", "-B"],
         "runtime_requested": manifest["expected_runtime"],
-        "runtime": runtime,
+        "runtime": raw["runtime"],
         "manifest_sha256": canonical_sha256(manifest),
         "results": rows,
         "all_examples_passed": all(row["pass"] for row in rows),
