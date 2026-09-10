@@ -17,6 +17,9 @@ tekstu. Nie skracasz go, nie parafrazujesz i nie dopisujesz narracji.
    związany z konkretnym miejscem wypowiedzi bez używania sekund.
 3. Kod i output wolno pokazywać tylko z dostarczonych dowodów wykonania.
    Element musi wskazać `example_id` lub `check_id`, z którego pochodzi.
+   `provenance`, `source_ref`, `kind` i `content` tworzą nierozdzielną parę z
+   JEDNEGO rekordu evidence. Nie wolno użyć wyniku jednego przykładu z
+   `source_ref` innego, nawet jeśli przykłady są obok siebie w tej samej sesji.
 4. `visual_label` może zawierać jedynie krótką etykietę ekranową, a nie nowe
    twierdzenie merytoryczne ani pełne zdanie narracji.
 5. Wybrany wariant M3a jest wiążący dla jego fragmentu testowego. Zachowaj jego
@@ -53,7 +56,19 @@ Dla każdego elementu podaj pochodzenie:
   `source_ref` to `check_id`,
 - `visual_label` — krótka etykieta wizualna; `source_ref` jest pusty.
 
-Nie przepisuj wyników z pamięci. Użyj dokładnie wartości z evidence packet.
+Dla `core_example` i `enrichment_check` najpierw wybierz dokładny rekord evidence,
+a dopiero z NIEGO skopiuj zawartość:
+
+- `kind: code` — dokładnie `input` dla `core_example` albo `code` dla
+  `enrichment_check`,
+- `kind: output` lub `kind: state` — dokładnie niepusty `actual_stdout` tego
+  SAMEGO rekordu, bez otaczających znaków końca linii.
+
+Rekord z pustym `actual_stdout` nie może być źródłem elementu `output` ani
+`state`. Nie przepisuj wyników z pamięci i nie łącz kodu z jednego rekordu z
+wynikiem innego. Przed oddaniem JSON wykonaj własny audyt każdego elementu
+`core_example`/`enrichment_check`: `source_ref` musi wskazywać dokładnie ten
+rekord, z którego pochodzi `content`.
 
 ## Cel wyjścia
 
