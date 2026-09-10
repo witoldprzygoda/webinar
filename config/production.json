@@ -10,7 +10,7 @@
     "quota_action": "BLOCKED_LIMIT"
   },
   "audience": {
-    "default_profile": "cs_year3",
+    "default_profile": "technical_competent",
     "require_explicit_profile": true
   },
   "review": {
