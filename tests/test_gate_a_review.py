@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.gate_a_review import GateAReviewError, canonical_hash, make_review, verify_chain
+from scripts.gate_a_review import GateAReviewError, RUBRIC_VERSION, canonical_hash, make_review, verify_chain
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -17,6 +17,7 @@ def fixture(root: Path) -> Path:
     m2a = root / "m2a"
     m2b = root / "m2b"
     m2c = root / "m2c"
+    audience = "cs_year3"
     artifact = {
         "title": "T",
         "narration": [
@@ -29,13 +30,15 @@ def fixture(root: Path) -> Path:
     write_json(m2a / "artifact.json", artifact)
     write_json(m2a / "summary.json", {
         "stage": "M2a", "status": "COMPLETED", "artifact_sha256": artifact_sha,
+        "rubric_version": RUBRIC_VERSION, "audience_profile": audience,
     })
     content_report = {
         "artifact_sha256": artifact_sha,
+        "rubric_version": RUBRIC_VERSION,
         "verdict": "PASS",
         "criteria": [
             {"criterion_id": key, "status": "PASS", "reason": "ok"}
-            for key in ("F1", "F2", "E1", "E2", "L1", "L2", "L3", "D1", "P1")
+            for key in ("F1", "F2", "E1", "E2", "L1", "L2", "L3", "L4", "D1", "P1")
         ],
         "findings": [],
     }
@@ -49,25 +52,29 @@ def fixture(root: Path) -> Path:
     write_json(m2b / "execution-evidence.json", evidence)
     write_json(m2b / "summary.json", {
         "stage": "M2b", "status": "COMPLETED", "artifact_sha256": artifact_sha,
+        "rubric_version": RUBRIC_VERSION, "audience_profile": audience,
         "artifact_unchanged": True, "content_judge_pass": True,
         "execution_evidence_sha256": evidence["execution_evidence_sha256"],
     })
     language_report = {
         "artifact_sha256": artifact_sha,
+        "rubric_version": RUBRIC_VERSION,
         "verdict": "PASS",
         "criteria": [
             {"criterion_id": key, "status": "PASS", "reason": "ok"}
-            for key in ("L1", "L2", "L3", "P1")
+            for key in ("L1", "L2", "L3", "L4", "P1")
         ],
         "findings": [],
     }
     write_json(m2c / "judge-language-report.json", language_report)
     write_json(m2c / "gate-a-package.json", {
         "gate": "A", "artifact_sha256": artifact_sha,
+        "rubric_version": RUBRIC_VERSION, "audience_profile": audience,
         "human_approval": "PENDING_HUMAN_APPROVAL",
     })
     write_json(m2c / "summary.json", {
         "stage": "M2c", "status": "COMPLETED", "lesson_id": "lesson",
+        "rubric_version": RUBRIC_VERSION, "audience_profile": audience,
         "gate_a_reached": True, "gate_a_approved": False,
         "gate_a_status": "PENDING_HUMAN_APPROVAL",
         "artifact_sha256": artifact_sha,
@@ -83,6 +90,8 @@ class GateAReviewTests(unittest.TestCase):
             output, text, receipt = make_review(m2c)
             self.assertTrue(output.is_file())
             self.assertIn("Pierwszy fragment.", text)
+            self.assertIn("Profil odbiorcy: `cs_year3`", text)
+            self.assertIn("Rubric: `0.2`", text)
             self.assertIn("Niezależny sędzia merytoryczny", text)
             self.assertIn("Niezależny sędzia językowy", text)
             self.assertIn("NIEZAREJESTROWANA", text)
@@ -106,6 +115,25 @@ class GateAReviewTests(unittest.TestCase):
             report = load(m2b / "judge-report-with-execution.json")
             report["criteria"][0]["status"] = "FAIL"
             write_json(m2b / "judge-report-with-execution.json", report)
+            with self.assertRaises(GateAReviewError):
+                verify_chain(m2c)
+
+    def test_obsolete_rubric_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m2c = fixture(Path(tmp))
+            summary = load(m2c / "summary.json")
+            summary["rubric_version"] = "0.1"
+            write_json(m2c / "summary.json", summary)
+            with self.assertRaises(GateAReviewError):
+                verify_chain(m2c)
+
+    def test_missing_l4_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            m2c = fixture(Path(tmp))
+            report_path = m2c / "judge-language-report.json"
+            report = load(report_path)
+            report["criteria"] = [row for row in report["criteria"] if row["criterion_id"] != "L4"]
+            write_json(report_path, report)
             with self.assertRaises(GateAReviewError):
                 verify_chain(m2c)
 
