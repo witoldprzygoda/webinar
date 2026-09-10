@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "language": "pl",
+  "target_runtime": "Python 3.14",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "brief": "Przygotuj 3-5 minut profesjonalnej narracji wykładowej o używaniu interaktywnej konsoli Pythona jako kalkulatora. Wyjaśnij działania arytmetyczne, różnicę między / i //, operator %, potęgowanie **, przypisanie do nazwy oraz specjalne znaczenie _ w trybie interaktywnym. Narracja ma być samodzielnym wykładem, nie streszczeniem podręcznika. Nie projektuj scen, nie opisuj grafiki i nie dodawaj fonetycznych zapisów TTS.",
+  "sources": [
+    {
+      "id": "material-console-calculator",
+      "role": "material",
+      "repository": "witoldprzygoda/python-notatki",
+      "commit": "0bccb67f308b82b9e14833b3baffa56bcad16222",
+      "path": "docs/02-konsola/konsola-w-praktyce.md",
+      "section_start": "## Konsola jako kalkulator",
+      "section_end": "## Funkcja print"
+    },
+    {
+      "id": "evidence-cpython-314-calculator",
+      "role": "evidence",
+      "repository": "python/cpython",
+      "commit": "da5ed621a1c0ea495094aa727bbb0b90fb568c7e",
+      "path": "Doc/tutorial/introduction.rst",
+      "section_start": ".. _tut-calculator:",
+      "section_end": ".. _tut-strings:"
+    }
+  ]
+}
