@@ -18,6 +18,8 @@ from flows.m2a_content import (  # noqa: E402
     CONTENT_CRITERIA,
     JUDGE_PROMPT,
     RUBRIC,
+    RUBRIC_VERSION,
+    audience_for,
     canonical_hash,
     judge_schema,
     validate_judge_report,
@@ -44,6 +46,8 @@ def verify_m2a_run(run_dir: Path) -> tuple[dict, dict, dict, str]:
     source_pack = load_json(run_dir / "source-pack.json")
     if summary.get("stage") != "M2a" or summary.get("status") != "COMPLETED":
         raise RoleRunnerError("BLOCKED_INPUT", "Input directory is not a completed M2a run.")
+    if summary.get("rubric_version") != RUBRIC_VERSION:
+        raise RoleRunnerError("BLOCKED_INPUT", "M2a run uses an obsolete rubric version.")
     artifact_sha256 = canonical_hash(artifact)
     if summary.get("artifact_sha256") != artifact_sha256:
         raise RoleRunnerError("BLOCKED_INPUT", "M2a artifact hash does not match summary.json.")
@@ -78,8 +82,9 @@ def judge_task(
     payload = {
         "role_instructions": JUDGE_PROMPT.read_text(encoding="utf-8"),
         "brief": config["brief"],
+        "audience_profile": audience_for(config),
         "target_runtime": config["target_runtime"],
-        "rubric_version": "0.1",
+        "rubric_version": RUBRIC_VERSION,
         "rubric": RUBRIC.read_text(encoding="utf-8"),
         "artifact_sha256": artifact_sha256,
         "artifact": artifact,
@@ -91,6 +96,7 @@ def judge_task(
             "This is the same immutable artifact as in M2a; do not reward a revision because there was none.",
             "Execution evidence comes from a deterministic non-LLM executor and includes exact runtime identity, inputs and actual outputs.",
             "Assess E1 and E2 against the supplied actual execution evidence, not against documentation examples alone.",
+            "Apply L4 independently against the explicit audience profile.",
             "Material is not automatically factual evidence; prefer evidence-role sources for version-dependent claims.",
             "Do not rewrite the artifact. Return only the evaluation report.",
             "Do not invent a target number of findings."
@@ -123,6 +129,8 @@ def m2b_verify(m2a_run_dir: str) -> dict:
         "audio_called": False,
         "render_called": False,
         "revision_cycle": 0,
+        "rubric_version": RUBRIC_VERSION,
+        "audience_profile": config.get("audience_profile"),
         "source_m2a_run": str(input_dir),
         "reports": str(run_dir),
     }
