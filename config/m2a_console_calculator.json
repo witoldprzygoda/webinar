@@ -5,7 +5,8 @@
   "target_runtime": "Python 3.14",
   "model": "gpt-6-astra",
   "reasoning_effort": "high",
-  "brief": "Przygotuj 3-5 minut profesjonalnej narracji wykładowej o używaniu interaktywnej konsoli Pythona jako kalkulatora. Wyjaśnij działania arytmetyczne, różnicę między / i //, operator %, potęgowanie **, przypisanie do nazwy oraz specjalne znaczenie _ w trybie interaktywnym. Narracja ma być samodzielnym wykładem, nie streszczeniem podręcznika. Nie projektuj scen, nie opisuj grafiki i nie dodawaj fonetycznych zapisów TTS.",
+  "audience_profile": "cs_year3",
+  "brief": "Przygotuj 3-5 minut profesjonalnej narracji wykładowej o używaniu interaktywnej konsoli Pythona jako kalkulatora. Skoncentruj się na zachowaniach istotnych dla programisty: różnicy między / i //, operatorze %, potęgowaniu **, przypisaniu do nazwy oraz specjalnym znaczeniu _ w trybie interaktywnym. Odbiorca jest technicznie biegły i zna podstawy programowania oraz elementarną notację operatorów, więc nie objaśniaj oczywistych symboli ani podstaw arytmetyki. Narracja ma być samodzielnym, akademickim wykładem, nie streszczeniem podręcznika. Nie projektuj scen, nie opisuj grafiki i nie dodawaj fonetycznych zapisów TTS.",
   "sources": [
     {
       "id": "material-console-calculator",
