@@ -9,8 +9,12 @@
     "max_parallel_jobs": 1,
     "quota_action": "BLOCKED_LIMIT"
   },
+  "audience": {
+    "default_profile": "cs_year3",
+    "require_explicit_profile": true
+  },
   "review": {
-    "rubric_version": "0.1",
+    "rubric_version": "0.2",
     "separate_process_required": true,
     "separate_session_required": true,
     "context_access_isolation_required": true,
