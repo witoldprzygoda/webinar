@@ -1,6 +1,6 @@
 # Enrichment rubric
 
-Wersja 0.2. Ta rubric dotyczy wyłącznie fakultatywnego wzbogacania poprawnego
+Wersja 0.1. Ta rubric dotyczy wyłącznie fakultatywnego wzbogacania poprawnego
 rdzenia lekcji. Nie jest częścią obowiązkowej QUALITY_RUBRIC i nie może obniżyć
 oceny lekcji tylko dlatego, że nie znaleziono dobrego enrichmentu.
 
