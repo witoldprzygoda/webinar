@@ -54,11 +54,27 @@ const firstRevealFrame = (
   return row ? row.start_frame : null;
 };
 
+const relevantIdsForFragment = (
+  sceneId: string,
+  fragmentId: string | undefined,
+  beats: PreviewTimingBeat[],
+): Set<string> => {
+  if (!fragmentId) return new Set();
+  const result = new Set<string>();
+  for (const beat of beats) {
+    if (beat.scene_id !== sceneId || beat.fragment_id !== fragmentId) continue;
+    result.add(beat.focus_target_id);
+    for (const id of beat.reveals) result.add(id);
+  }
+  return result;
+};
+
 const elementOpacity = (
   frame: number,
   revealFrame: number | null,
   focused: boolean,
   anyFocus: boolean,
+  contextual: boolean,
 ) => {
   if (revealFrame === null || frame < revealFrame) {
     return 0;
@@ -69,7 +85,8 @@ const elementOpacity = (
     easing: Easing.bezier(0.16, 1, 0.3, 1),
   });
   const attention = anyFocus && !focused ? 0.58 : 1;
-  return appeared * attention;
+  const context = contextual ? 1 : 0.12;
+  return appeared * attention * context;
 };
 
 const ElementCard: React.FC<{
@@ -78,16 +95,12 @@ const ElementCard: React.FC<{
   revealFrame: number | null;
   focused: boolean;
   anyFocus: boolean;
-}> = ({element, frame, revealFrame, focused, anyFocus}) => {
+  contextual?: boolean;
+}> = ({element, frame, revealFrame, focused, anyFocus, contextual = true}) => {
   const codeLike = element.kind === "code" || element.kind === "output";
   const labelLike = element.kind === "label" || element.kind === "panel";
-  const opacity = elementOpacity(frame, revealFrame, focused, anyFocus);
-  const scale = focused
-    ? interpolate(frame, [0, 8], [1, 1.015], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-      })
-    : 1;
+  const opacity = elementOpacity(frame, revealFrame, focused, anyFocus, contextual);
+  const scale = focused ? 1.015 : 1;
 
   return (
     <div
@@ -128,6 +141,7 @@ const GenericScene: React.FC<{
   activeBeat: PreviewTimingBeat | undefined;
 }> = ({scene, props, frame, activeBeat}) => {
   const anyFocus = Boolean(activeBeat?.focus_target_id);
+  const relevant = relevantIdsForFragment(scene.scene_id, activeBeat?.fragment_id, props.timing.beats);
   return (
     <div
       style={{
@@ -158,6 +172,7 @@ const GenericScene: React.FC<{
               revealFrame={revealFrame}
               focused={activeBeat?.focus_target_id === element.element_id}
               anyFocus={anyFocus}
+              contextual={!activeBeat || relevant.has(element.element_id)}
             />
           );
         })}
