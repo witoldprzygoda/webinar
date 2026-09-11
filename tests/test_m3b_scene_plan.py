@@ -3,11 +3,16 @@ from __future__ import annotations
 import copy
 import unittest
 
-from flows.m3b_scene_plan import validate_scene_plan
+from flows.m3b_scene_plan import (
+    materialize_scene_plan,
+    validate_designer_plan,
+    validate_scene_plan,
+)
 from runners.codex_role import RoleRunnerError
+from runners.visual_fact_catalog import build_visual_fact_catalog
 
 
-class M3bScenePlanTests(unittest.TestCase):
+class M3bScenePlanV2Tests(unittest.TestCase):
     def config(self) -> dict:
         return {"scene_types": ["OPEN", "STATE"]}
 
@@ -26,18 +31,11 @@ class M3bScenePlanTests(unittest.TestCase):
     def evidence(self) -> dict:
         return {
             "core_examples": [
-                {"example_id": "e1", "input": "price * tax", "actual_stdout": "12.5625\n"},
-                {"example_id": "e2", "input": "price + _", "actual_stdout": "113.0625\n"},
-                {"example_id": "e3", "input": "round(_, 2)", "actual_stdout": "113.06\n"},
+                {"example_id": "e1", "fragment_ids": ["frag-07"], "input": "price * tax", "actual_stdout": "12.5625\n"},
+                {"example_id": "e2", "fragment_ids": ["frag-07"], "input": "price + _", "actual_stdout": "113.0625\n"},
+                {"example_id": "e3", "fragment_ids": ["frag-07"], "input": "round(_, 2)", "actual_stdout": "113.06\n"},
             ],
-            "enrichment_checks": [
-                {
-                    "check_id": "c-divmod",
-                    "fragment_ids": ["f1"],
-                    "code": "print(divmod(125, 60))",
-                    "actual_stdout": "(2, 5)\n",
-                }
-            ],
+            "enrichment_checks": [],
         }
 
     def selected_variant(self) -> dict:
@@ -54,8 +52,18 @@ class M3bScenePlanTests(unittest.TestCase):
             "beats": [{"narration_fragment_ids": ["frag-07"]}],
         }
 
-    def plan(self) -> dict:
+    def catalog(self) -> dict:
+        return build_visual_fact_catalog("artifact-hash", self.evidence())
+
+    def designer_plan(self) -> dict:
+        catalog = self.catalog()
         return {
+            "schema_version": 2,
+            "artifact_sha256": "artifact-hash",
+            "gate_a_approval_sha256": "approval-hash",
+            "m3a_selection_sha256": "selection-hash",
+            "visual_fact_catalog_sha256": catalog["visual_fact_catalog_sha256"],
+            "role": "scene_designer",
             "lesson_title": "Lekcja",
             "selected_calibration_variant_id": "v2",
             "component_requests": [
@@ -81,8 +89,9 @@ class M3bScenePlanTests(unittest.TestCase):
                         {
                             "element_id": "s1-label",
                             "kind": "label",
-                            "provenance": "visual_label",
-                            "source_ref": "",
+                            "source_type": "visual_label",
+                            "fact_id": "",
+                            "fragment_id": "",
                             "content": "Konsola jako kalkulator",
                         }
                     ],
@@ -112,30 +121,34 @@ class M3bScenePlanTests(unittest.TestCase):
                         {
                             "element_id": "underscore",
                             "kind": "state",
-                            "provenance": "approved_narration",
-                            "source_ref": "frag-07",
+                            "source_type": "narration_quote",
+                            "fact_id": "",
+                            "fragment_id": "frag-07",
                             "content": "_",
                         },
                         {
                             "element_id": "state-1",
                             "kind": "state",
-                            "provenance": "core_example",
-                            "source_ref": "e1",
-                            "content": "12.5625",
+                            "source_type": "fact",
+                            "fact_id": "fact:core:e1:stdout",
+                            "fragment_id": "",
+                            "content": "",
                         },
                         {
                             "element_id": "state-2",
                             "kind": "state",
-                            "provenance": "core_example",
-                            "source_ref": "e2",
-                            "content": "113.0625",
+                            "source_type": "fact",
+                            "fact_id": "fact:core:e2:stdout",
+                            "fragment_id": "",
+                            "content": "",
                         },
                         {
                             "element_id": "state-3",
                             "kind": "state",
-                            "provenance": "core_example",
-                            "source_ref": "e3",
-                            "content": "113.06",
+                            "source_type": "fact",
+                            "fact_id": "fact:core:e3:stdout",
+                            "fragment_id": "",
+                            "content": "",
                         },
                     ],
                     "beats": [
@@ -167,90 +180,90 @@ class M3bScenePlanTests(unittest.TestCase):
                     "risks": [],
                 },
             ],
+            "design_note": "Test",
         }
 
-    def validate(self, plan: dict) -> None:
-        validate_scene_plan(
+    def validate_designer(self, plan: dict) -> None:
+        validate_designer_plan(
             plan,
+            artifact=self.artifact(),
+            catalog=self.catalog(),
+            selected_variant=self.selected_variant(),
+        )
+
+    def test_valid_designer_plan_is_accepted(self):
+        self.validate_designer(self.designer_plan())
+
+    def test_fact_backed_element_must_not_copy_content(self):
+        plan = self.designer_plan()
+        plan["scenes"][1]["visible_elements"][1]["content"] = "12.5625"
+        with self.assertRaises(RoleRunnerError):
+            self.validate_designer(plan)
+
+    def test_unknown_fact_id_is_rejected(self):
+        plan = self.designer_plan()
+        plan["scenes"][1]["visible_elements"][1]["fact_id"] = "fact:missing"
+        with self.assertRaises(RoleRunnerError):
+            self.validate_designer(plan)
+
+    def test_narration_quote_must_be_exact_and_local_to_scene(self):
+        plan = self.designer_plan()
+        plan["scenes"][1]["visible_elements"][0]["content"] = "nie istnieje"
+        with self.assertRaises(RoleRunnerError):
+            self.validate_designer(plan)
+
+    def test_narration_quote_cannot_be_output(self):
+        plan = self.designer_plan()
+        plan["scenes"][1]["visible_elements"][0]["kind"] = "output"
+        with self.assertRaises(RoleRunnerError):
+            self.validate_designer(plan)
+
+    def test_materialization_resolves_content_and_provenance_deterministically(self):
+        plan = self.designer_plan()
+        materialized = materialize_scene_plan(plan, catalog=self.catalog())
+        state = materialized["scenes"][1]["visible_elements"][1]
+        self.assertEqual(state["content"], "12.5625")
+        self.assertEqual(state["provenance"], "core_example")
+        self.assertEqual(state["source_ref"], "e1")
+        validate_scene_plan(
+            materialized,
             artifact=self.artifact(),
             evidence=self.evidence(),
             selected_variant=self.selected_variant(),
             config=self.config(),
+            fact_catalog=self.catalog(),
         )
 
-    def test_valid_plan_is_accepted(self):
-        self.validate(self.plan())
+    def test_materialized_fact_content_cannot_be_changed(self):
+        materialized = materialize_scene_plan(self.designer_plan(), catalog=self.catalog())
+        materialized["scenes"][1]["visible_elements"][1]["content"] = "999"
+        with self.assertRaises(RoleRunnerError):
+            validate_scene_plan(
+                materialized,
+                artifact=self.artifact(),
+                evidence=self.evidence(),
+                selected_variant=self.selected_variant(),
+                config=self.config(),
+                fact_catalog=self.catalog(),
+            )
 
     def test_every_fragment_must_be_covered_in_order(self):
-        plan = self.plan()
+        plan = self.designer_plan()
         plan["scenes"][0]["narration_fragment_ids"] = ["frag-07"]
         with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
+            self.validate_designer(plan)
 
     def test_anchor_must_be_exact_narration_substring(self):
-        plan = self.plan()
+        plan = self.designer_plan()
         plan["scenes"][1]["beats"][0]["anchor_text"] = "tekst spoza narracji"
         with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
-
-    def test_output_cannot_be_invented(self):
-        plan = self.plan()
-        plan["scenes"][1]["visible_elements"][1]["content"] = "999"
-        with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
-
-    def test_derived_state_from_verified_tuple_is_accepted(self):
-        plan = self.plan()
-        plan["scenes"][0]["visible_elements"].append(
-            {
-                "element_id": "derived-minute",
-                "kind": "state",
-                "provenance": "derived_evidence",
-                "source_ref": "enrichment_check:c-divmod#stdout_literal[0]",
-                "content": "2",
-            }
-        )
-        self.validate(plan)
-
-    def test_derived_evidence_is_state_only(self):
-        plan = self.plan()
-        plan["scenes"][0]["visible_elements"].append(
-            {
-                "element_id": "bad-derived-output",
-                "kind": "output",
-                "provenance": "derived_evidence",
-                "source_ref": "enrichment_check:c-divmod#stdout_literal[0]",
-                "content": "2",
-            }
-        )
-        with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
-
-    def test_derived_state_must_match_indexed_value(self):
-        plan = self.plan()
-        plan["scenes"][0]["visible_elements"].append(
-            {
-                "element_id": "bad-derived-state",
-                "kind": "state",
-                "provenance": "derived_evidence",
-                "source_ref": "enrichment_check:c-divmod#stdout_literal[1]",
-                "content": "2",
-            }
-        )
-        with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
+            self.validate_designer(plan)
 
     def test_calibration_visual_strategy_is_binding(self):
-        plan = self.plan()
+        plan = self.designer_plan()
         plan["scenes"][1]["visual_strategy"] = "sequential_run"
         with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
-
-    def test_calibration_state_model_must_be_preserved(self):
-        plan = self.plan()
-        plan["scenes"][1]["visible_elements"].pop()
-        with self.assertRaises(RoleRunnerError):
-            self.validate(plan)
+            self.validate_designer(plan)
 
 
 if __name__ == "__main__":
