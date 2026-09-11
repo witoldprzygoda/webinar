@@ -1,5 +1,6 @@
 import React from "react";
 import {Composition} from "remotion";
+import {VisualCalibration, type VisualCalibrationProps} from "./VisualCalibration";
 import {WebinarSilentPreview, WebinarSilentReview} from "./WebinarPreview";
 import type {PreviewProps} from "./types";
 
@@ -48,6 +49,45 @@ const emptyProps: PreviewProps = {
   preview_props_sha256: "",
 };
 
+const emptyCalibrationProps: VisualCalibrationProps = {
+  schema_version: 1,
+  lesson_id: "empty",
+  scene_id: "s00",
+  scene_index: 0,
+  variant_id: "calibration-empty",
+  theme: "dark",
+  layout: "editorial_stack",
+  motion: "soft_rise",
+  fps: 30,
+  width: 1920,
+  height: 1080,
+  duration_frames: 300,
+  content_start_frame: 18,
+  content_end_frame: 282,
+  narration_fragment_ids: [],
+  narration_text: "",
+  screen_copy: {
+    eyebrow: "M3c0",
+    title: "Visual calibration requires --props",
+    items: [],
+    footer: "silent preview",
+  },
+  original_scene: {
+    scene_id: "s00",
+    title: "Visual calibration requires --props",
+    scene_type: "OPEN",
+    narration_fragment_ids: [],
+    pedagogical_goal: "",
+    visual_strategy: "",
+    calibration_variant_id: "",
+    requires_new_component: false,
+    component_request_id: "",
+    visible_elements: [],
+    beats: [],
+    risks: [],
+  },
+};
+
 const metadata = ({props}: {props: PreviewProps}) => ({
   durationInFrames: Math.max(1, props.timing?.total_frames ?? 300),
   fps: props.fps ?? 30,
@@ -60,6 +100,13 @@ const reviewMetadata = ({props}: {props: PreviewProps}) => ({
   fps: props.fps ?? 30,
   width: props.width ?? 1920,
   height: (props.height ?? 1080) + (props.review_strip_height ?? 150),
+});
+
+const calibrationMetadata = ({props}: {props: VisualCalibrationProps}) => ({
+  durationInFrames: Math.max(1, props.duration_frames ?? 300),
+  fps: props.fps ?? 30,
+  width: props.width ?? 1920,
+  height: props.height ?? 1080,
 });
 
 export const RemotionRoot: React.FC = () => {
@@ -84,6 +131,16 @@ export const RemotionRoot: React.FC = () => {
         height={1230}
         defaultProps={emptyProps}
         calculateMetadata={reviewMetadata}
+      />
+      <Composition
+        id="VisualCalibration"
+        component={VisualCalibration}
+        durationInFrames={300}
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={emptyCalibrationProps}
+        calculateMetadata={calibrationMetadata}
       />
     </>
   );
