@@ -13,6 +13,9 @@ from flows.m3b_scene_plan import build_evidence_packet, verify_m3a_selection  # 
 from runners.visual_fact_catalog import build_visual_fact_catalog, verify_visual_fact_catalog  # noqa: E402
 
 
+PRESENTATION_POLICY = "core_examples_only_enrichment_checks_verification_only"
+
+
 def preflight(m3a_run_dir: Path) -> dict:
     verified = verify_m3a_selection(m3a_run_dir.expanduser().resolve())
     approved = verified["approved"]
@@ -23,6 +26,19 @@ def preflight(m3a_run_dir: Path) -> dict:
         artifact_sha256=approved["artifact_sha256"],
         evidence=evidence,
     )
+    if catalog.get("presentation_policy") != PRESENTATION_POLICY:
+        raise ValueError("Unexpected visual fact presentation policy.")
+    forbidden = [
+        row.get("fact_id", "")
+        for row in catalog.get("facts", [])
+        if isinstance(row, dict)
+        and (
+            row.get("provenance") == "enrichment_check"
+            or str(row.get("fact_id", "")).startswith("fact:enrichment:")
+        )
+    ]
+    if forbidden:
+        raise ValueError("Visual fact catalog exposes enrichment verification harnesses: " + ", ".join(forbidden))
     return {
         "stage": "M3b-fact-catalog-preflight",
         "status": "PASS",
@@ -31,6 +47,8 @@ def preflight(m3a_run_dir: Path) -> dict:
         "m3a_selection_sha256": verified["selection_sha256"],
         "selected_variant_id": verified["selection"]["selected_variant_id"],
         "visual_fact_catalog_sha256": catalog["visual_fact_catalog_sha256"],
+        "presentation_policy": catalog["presentation_policy"],
+        "enrichment_verification_facts_exposed": False,
         "fact_count": len(catalog["facts"]),
         "facts": [
             {
