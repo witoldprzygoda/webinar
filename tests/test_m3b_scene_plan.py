@@ -30,7 +30,14 @@ class M3bScenePlanTests(unittest.TestCase):
                 {"example_id": "e2", "input": "price + _", "actual_stdout": "113.0625\n"},
                 {"example_id": "e3", "input": "round(_, 2)", "actual_stdout": "113.06\n"},
             ],
-            "enrichment_checks": [],
+            "enrichment_checks": [
+                {
+                    "check_id": "c-divmod",
+                    "fragment_ids": ["f1"],
+                    "code": "print(divmod(125, 60))",
+                    "actual_stdout": "(2, 5)\n",
+                }
+            ],
         }
 
     def selected_variant(self) -> dict:
@@ -189,6 +196,47 @@ class M3bScenePlanTests(unittest.TestCase):
     def test_output_cannot_be_invented(self):
         plan = self.plan()
         plan["scenes"][1]["visible_elements"][1]["content"] = "999"
+        with self.assertRaises(RoleRunnerError):
+            self.validate(plan)
+
+    def test_derived_state_from_verified_tuple_is_accepted(self):
+        plan = self.plan()
+        plan["scenes"][0]["visible_elements"].append(
+            {
+                "element_id": "derived-minute",
+                "kind": "state",
+                "provenance": "derived_evidence",
+                "source_ref": "enrichment_check:c-divmod#stdout_literal[0]",
+                "content": "2",
+            }
+        )
+        self.validate(plan)
+
+    def test_derived_evidence_is_state_only(self):
+        plan = self.plan()
+        plan["scenes"][0]["visible_elements"].append(
+            {
+                "element_id": "bad-derived-output",
+                "kind": "output",
+                "provenance": "derived_evidence",
+                "source_ref": "enrichment_check:c-divmod#stdout_literal[0]",
+                "content": "2",
+            }
+        )
+        with self.assertRaises(RoleRunnerError):
+            self.validate(plan)
+
+    def test_derived_state_must_match_indexed_value(self):
+        plan = self.plan()
+        plan["scenes"][0]["visible_elements"].append(
+            {
+                "element_id": "bad-derived-state",
+                "kind": "state",
+                "provenance": "derived_evidence",
+                "source_ref": "enrichment_check:c-divmod#stdout_literal[1]",
+                "content": "2",
+            }
+        )
         with self.assertRaises(RoleRunnerError):
             self.validate(plan)
 
