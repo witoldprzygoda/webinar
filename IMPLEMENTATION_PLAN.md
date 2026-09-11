@@ -88,12 +88,22 @@ nalezy na nim budowac dalszego pipeline.
 
 `flows/m3b_scene_plan.py` uzywa teraz kontraktu v2. Przed wywolaniem projektanta
 Prefect buduje LLM-free `visual-fact-catalog.json` z zatwierdzonego execution
-evidence. Katalog zawiera stabilne `fact_id` dla:
+evidence.
 
-- literalnego kodu wykonanego przykladu;
-- literalnego stdout po kanonizacji tylko koncowego CR/LF;
-- bezpiecznych, deterministycznych skladowych top-level tuple/list stdout,
-  np. `(2, 5)` -> state facts `2` i `5`.
+Kluczowa granica: **execution evidence nie jest automatycznie materialem do
+pokazania**. `core_examples` sa artifact-bound przykladami dydaktycznymi i moga
+byc publikowane jako visual facts. `enrichment_checks` sa harnessami
+weryfikacyjnymi; ich `code`, pomocnicze `assert`/`print` i ich stdout sluza do
+udowodnienia twierdzen, ale nie sa udostepniane projektantowi jako fakty
+prezentacyjne. Enrichment ma byc wizualizowany z literalnych `narration_quote`
+Gate A, dopoki osobny kontrakt nie zdefiniuje jawnego display example.
+
+Katalog prezentacyjny zawiera stabilne `fact_id` dla:
+
+- literalnego kodu artifact-bound przykladu rdzenia;
+- literalnego stdout takiego przykladu po kanonizacji tylko koncowego CR/LF;
+- bezpiecznych, deterministycznych skladowych top-level tuple/list stdout z
+  przykladu rdzenia, gdy taki przyklad wystepuje.
 
 Projektant scen dla danych wykonawczych wybiera tylko istniejacy `fact_id` i
 `kind`. Nie przepisuje `content`, `provenance`, `example_id` ani `check_id`.
@@ -114,6 +124,10 @@ M3b v2 nadal:
 - zapisuje osobno surowa decyzje projektanta `scene-plan-design.json`, katalog
   `visual-fact-catalog.json` i zmaterializowany `scene-plan.json`;
 - nie renderuje i nie uruchamia audio.
+
+Dla `v2` nazwa techniczna mechaniki (`state_model`, `Model stanu`) pozostaje
+metadanymi projektu; widz ma zobaczyc stala nazwe `_` i jedno gniazdo aktualnej
+wartosci, bez meta-etykiety opisujacej technike.
 
 `scripts/m3b_review.py` pokazuje w przegladzie zarowno wybrany `fact_id`, jak i
 wynik deterministycznego bindingu do provenance/evidence.
