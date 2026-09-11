@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "review_strip_height": 150,
+  "words_per_minute": 138,
+  "minimum_fragment_seconds": 3.0,
+  "scene_lead_in_seconds": 0.6,
+  "scene_tail_seconds": 0.6,
+  "minimum_beat_spacing_frames": 4,
+  "audio_enabled": false,
+  "render_enabled": false
+}
