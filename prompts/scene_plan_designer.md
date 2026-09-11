@@ -15,7 +15,10 @@ tekstu. Nie skracasz go, nie parafrazujesz i nie dopisujesz narracji.
    `narration_fragment_id` i krótki `anchor_text`, który musi być dosłownym
    fragmentem zatwierdzonego tekstu. Dzięki temu późniejszy timing może zostać
    związany z konkretnym miejscem wypowiedzi bez używania sekund.
-3. `output` i `state` wolno pokazywać tylko z dostarczonych dowodów wykonania.
+3. `output` wolno pokazywać tylko jako rzeczywisty stdout z dostarczonych
+   dowodów wykonania. `state` może być albo takim samym literalnym stdout, albo
+   pojedynczą skalarną wartością wyprowadzoną deterministycznie z elementu
+   tuple/list zapisanego w `actual_stdout`; wtedy użyj `derived_evidence`.
    Kod najlepiej wiąż z `example_id` lub `check_id`; jeśli jednak dokładny ciąg
    kodu występuje dosłownie w zatwierdzonej narracji Gate A, może mieć
    `provenance=approved_narration` i `source_ref` równy odpowiedniemu
@@ -51,10 +54,14 @@ Dla każdego elementu podaj pochodzenie:
 - `approved_narration` — dosłowny podciąg zatwierdzonego fragmentu; może być
   krótkim tokenem/etykietą albo kodem występującym literalnie w narracji;
   `source_ref` to `fragment_id`,
-- `core_example` — kod lub wynik z rzeczywistego przykładu rdzenia;
+- `core_example` — kod lub cały wynik z rzeczywistego przykładu rdzenia;
   `source_ref` to `example_id`,
-- `enrichment_check` — kod lub wynik z rzeczywistej kontroli enrichmentu;
+- `enrichment_check` — kod lub cały wynik z rzeczywistej kontroli enrichmentu;
   `source_ref` to `check_id`,
+- `derived_evidence` — wyłącznie `kind=state`; pojedynczy skalarny element
+  tuple/list odczytanego z rzeczywistego `actual_stdout`. `source_ref` ma format
+  `core_example:<example_id>#stdout_literal[<index>]` albo
+  `enrichment_check:<check_id>#stdout_literal[<index>]`,
 - `visual_label` — krótka etykieta wizualna; `source_ref` jest pusty.
 
 Dla elementu `core_example` lub `enrichment_check` pola `provenance`,
@@ -67,14 +74,24 @@ dokładnie tak, jak zapisano go w evidence. Jeżeli exact code nie istnieje w
 evidence, ale jest dosłownym podciągiem zatwierdzonej narracji, użyj
 `provenance=approved_narration` zamiast udawać powiązanie z execution evidence.
 
-Dla `kind=output` lub `kind=state` zawsze użyj rzeczywistego `actual_stdout` z
-evidence, ale usuń wyłącznie końcowe znaki końca linii CR/LF. Nie dodawaj `\n`
-ani pustej linii na końcu `content`; nie usuwaj natomiast zwykłych spacji, bo
-mogą być częścią rzeczywistego outputu. `output/state` nie mogą korzystać z
-provenance `approved_narration`.
+Dla `kind=output` użyj całego rzeczywistego `actual_stdout` z evidence, usuwając
+wyłącznie końcowe znaki CR/LF. Nie wolno dzielić outputu na wygodne części ani
+przepisywać jego fragmentu jako osobnego `output`.
 
-Nie przepisuj wyników z pamięci. Użyj dokładnie wartości z evidence packet albo,
-dla kodu opisanego wyżej, dokładnego podciągu zatwierdzonej narracji.
+Dla `kind=state` najpierw użyj literalnego stdout, jeśli dokładnie odpowiada
+pokazywanemu stanowi. Jeżeli stan jest pojedynczym elementem zweryfikowanego
+wyniku będącego Pythonowym tuple/list, wolno użyć `derived_evidence`. Przykład:
+`actual_stdout == "(2, 5)\n"` może uzasadniać dwa stany `2` i `5`, odpowiednio
+przez `stdout_literal[0]` i `stdout_literal[1]`. To nie są osobne stdout-y, lecz
+jawnie zapisane wartości pochodne. Nie stosuj takiego wyprowadzania z dowolnego
+tekstu, słowników, wyrażeń ani nieustrukturyzowanego outputu.
+
+`output` nie może korzystać z `approved_narration` ani `derived_evidence`.
+`derived_evidence` nie może być użyte dla `code`.
+
+Nie przepisuj wyników z pamięci. Użyj dokładnie wartości z evidence packet,
+deterministycznego indeksowanego elementu zweryfikowanego tuple/list albo — dla
+kodu opisanego wyżej — dokładnego podciągu zatwierdzonej narracji.
 
 ## Cel wyjścia
 
