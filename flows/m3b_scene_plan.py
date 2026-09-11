@@ -1,16 +1,17 @@
-"""M3b: selected M3a variant -> full lesson scene plan.
+"""M3b v2: selected M3a variant -> full lesson scene plan.
 
-The Gate A narration remains immutable. A fresh scene-designer session expands
-the human-selected calibration mechanic into a traceable whole-lesson plan.
+The Gate A narration remains immutable. A fresh scene-designer session chooses
+semantic visuals, but executable code/stdout provenance is owned by Prefect via
+a deterministic visual fact catalog. The LLM selects fact_id values; it never
+copies execution provenance or evidence-backed content by hand.
 No audio or render is produced in this stage.
 """
 from __future__ import annotations
 
 import argparse
-import ast
+import copy
 import json
 from pathlib import Path
-import re
 import sys
 import uuid
 
@@ -23,35 +24,47 @@ sys.path.insert(0, str(ROOT))
 from flows.m2b_verify import load_json  # noqa: E402
 from flows.m3a_scene_variants import collect_prior_sessions, verify_gate_a_approval  # noqa: E402
 from runners.codex_role import CodexRoleRunner, RoleRunnerError  # noqa: E402
+from runners.visual_fact_catalog import (  # noqa: E402
+    build_visual_fact_catalog,
+    verify_visual_fact_catalog,
+)
 from scripts.m3a_review import M3aReviewError, verify_m3a  # noqa: E402
 from scripts.record_gate_a_approval import canonical_hash  # noqa: E402
 
 CONFIG = ROOT / "config" / "m3b_scene_plan.json"
 PROMPT = ROOT / "prompts" / "scene_plan_designer.md"
 ELEMENT_KINDS = ("code", "output", "label", "state", "panel", "diagram", "pointer_target", "other")
-PROVENANCE = ("approved_narration", "core_example", "enrichment_check", "derived_evidence", "visual_label")
-DERIVED_REF_RE = re.compile(r"^(core_example|enrichment_check):(.+)#stdout_literal\[(\d+)\]$")
+SOURCE_TYPES = ("fact", "narration_quote", "visual_label")
 
 
-def scene_plan_schema(config: dict, artifact_sha256: str, approval_sha256: str, selection_sha256: str) -> dict:
+def scene_plan_schema(
+    config: dict,
+    artifact_sha256: str,
+    approval_sha256: str,
+    selection_sha256: str,
+    catalog_sha256: str,
+    fact_ids: list[str],
+    fragment_ids: list[str],
+) -> dict:
     element = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "element_id": {"type": "string"},
             "kind": {"type": "string", "enum": list(ELEMENT_KINDS)},
-            "provenance": {"type": "string", "enum": list(PROVENANCE)},
-            "source_ref": {"type": "string"},
+            "source_type": {"type": "string", "enum": list(SOURCE_TYPES)},
+            "fact_id": {"type": "string", "enum": ["", *fact_ids]},
+            "fragment_id": {"type": "string", "enum": ["", *fragment_ids]},
             "content": {"type": "string"},
         },
-        "required": ["element_id", "kind", "provenance", "source_ref", "content"],
+        "required": ["element_id", "kind", "source_type", "fact_id", "fragment_id", "content"],
     }
     beat = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "beat_id": {"type": "string"},
-            "narration_fragment_id": {"type": "string"},
+            "narration_fragment_id": {"type": "string", "enum": fragment_ids},
             "anchor_text": {"type": "string"},
             "action": {"type": "string"},
             "focus_target_id": {"type": "string"},
@@ -69,7 +82,10 @@ def scene_plan_schema(config: dict, artifact_sha256: str, approval_sha256: str, 
             "scene_id": {"type": "string"},
             "title": {"type": "string"},
             "scene_type": {"type": "string", "enum": config["scene_types"]},
-            "narration_fragment_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "narration_fragment_ids": {
+                "type": "array", "minItems": 1,
+                "items": {"type": "string", "enum": fragment_ids},
+            },
             "pedagogical_goal": {"type": "string"},
             "visual_strategy": {"type": "string"},
             "calibration_variant_id": {"type": "string"},
@@ -101,10 +117,11 @@ def scene_plan_schema(config: dict, artifact_sha256: str, approval_sha256: str, 
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "schema_version": {"type": "integer", "enum": [1]},
+            "schema_version": {"type": "integer", "enum": [2]},
             "artifact_sha256": {"type": "string", "enum": [artifact_sha256]},
             "gate_a_approval_sha256": {"type": "string", "enum": [approval_sha256]},
             "m3a_selection_sha256": {"type": "string", "enum": [selection_sha256]},
+            "visual_fact_catalog_sha256": {"type": "string", "enum": [catalog_sha256]},
             "role": {"type": "string", "enum": ["scene_designer"]},
             "lesson_title": {"type": "string"},
             "selected_calibration_variant_id": {"type": "string"},
@@ -114,9 +131,9 @@ def scene_plan_schema(config: dict, artifact_sha256: str, approval_sha256: str, 
         },
         "required": [
             "schema_version", "artifact_sha256", "gate_a_approval_sha256",
-            "m3a_selection_sha256", "role", "lesson_title",
-            "selected_calibration_variant_id", "scenes", "component_requests",
-            "design_note",
+            "m3a_selection_sha256", "visual_fact_catalog_sha256", "role",
+            "lesson_title", "selected_calibration_variant_id", "scenes",
+            "component_requests", "design_note",
         ],
     }
 
@@ -181,119 +198,97 @@ def verify_m3a_selection(m3a_run_dir: Path) -> dict:
 
 
 def build_evidence_packet(approved: dict) -> dict:
-    core = approved["core_evidence"].get("results", [])
-    enrichment = approved["enrichment_evidence"].get("results", [])
     return {
-        "core_examples": core,
-        "enrichment_checks": enrichment,
+        "core_examples": approved["core_evidence"].get("results", []),
+        "enrichment_checks": approved["enrichment_evidence"].get("results", []),
     }
 
 
-def _evidence_maps(evidence: dict) -> tuple[dict[str, dict], dict[str, dict]]:
-    core = {row.get("example_id"): row for row in evidence.get("core_examples", []) if isinstance(row, dict)}
-    enrichment = {row.get("check_id"): row for row in evidence.get("enrichment_checks", []) if isinstance(row, dict)}
-    return core, enrichment
+def _fact_map(catalog: dict) -> dict[str, dict]:
+    return {
+        row["fact_id"]: row
+        for row in catalog.get("facts", [])
+        if isinstance(row, dict) and isinstance(row.get("fact_id"), str)
+    }
 
 
-def canonical_stdout_display(value) -> str:
-    """Canonical on-screen stdout: remove only terminal CR/LF characters."""
-    return str(value if value is not None else "").rstrip("\r\n")
+def _fragment_map(artifact: dict) -> dict[str, str]:
+    return {
+        row["fragment_id"]: row["text"]
+        for row in artifact.get("narration", [])
+        if isinstance(row, dict)
+        and isinstance(row.get("fragment_id"), str)
+        and isinstance(row.get("text"), str)
+    }
 
 
-def encode_derived_ref(origin: str, evidence_id: str, index: int) -> str:
-    if origin not in {"core_example", "enrichment_check"} or not evidence_id or index < 0:
-        raise ValueError("Invalid derived evidence reference.")
-    return f"{origin}:{evidence_id}#stdout_literal[{index}]"
-
-
-def parse_derived_ref(ref: str) -> tuple[str, str, int] | None:
-    if not isinstance(ref, str):
-        return None
-    match = DERIVED_REF_RE.fullmatch(ref)
-    if match is None:
-        return None
-    return match.group(1), match.group(2), int(match.group(3))
-
-
-def derived_state_value(row: dict, index: int) -> str | None:
-    """Return repr of one scalar tuple/list item from actual stdout."""
-    stdout = canonical_stdout_display(row.get("actual_stdout", ""))
-    if not stdout:
-        return None
-    try:
-        parsed = ast.literal_eval(stdout)
-    except (SyntaxError, ValueError):
-        return None
-    if not isinstance(parsed, (tuple, list)) or index < 0 or index >= len(parsed):
-        return None
-    value = parsed[index]
-    if value is not None and not isinstance(value, (str, int, float, bool, complex)):
-        return None
-    return repr(value)
-
-
-def _validate_element(element: dict, fragments: dict[str, str], core: dict[str, dict], enrichment: dict[str, dict]) -> None:
-    provenance = element["provenance"]
-    ref = element["source_ref"]
-    content = element["content"]
-    kind = element["kind"]
-    if not isinstance(content, str) or not content:
-        raise RoleRunnerError("INVALID_OUTPUT", "Visible element content must be non-empty.")
-    if provenance == "visual_label":
-        if ref != "":
-            raise RoleRunnerError("INVALID_OUTPUT", "visual_label elements must have empty source_ref.")
-        if len(content.split()) > 5:
-            raise RoleRunnerError("INVALID_OUTPUT", "visual_label elements may contain at most five words.")
+def _validate_designer_element(
+    element: dict,
+    *,
+    facts: dict[str, dict],
+    fragments: dict[str, str],
+    scene_fragment_ids: set[str],
+) -> None:
+    source_type = element.get("source_type")
+    kind = element.get("kind")
+    fact_id = element.get("fact_id")
+    fragment_id = element.get("fragment_id")
+    content = element.get("content")
+    element_id = element.get("element_id")
+    if not isinstance(element_id, str) or not element_id:
+        raise RoleRunnerError("INVALID_OUTPUT", "Visible element ids must be non-empty strings.")
+    if source_type == "fact":
+        if fact_id not in facts:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Element {element_id} references an unknown visual fact.")
+        if fragment_id != "" or content != "":
+            raise RoleRunnerError(
+                "INVALID_OUTPUT",
+                f"Fact-backed element {element_id} must not copy fragment_id or content; select fact_id only.",
+            )
+        if kind not in facts[fact_id].get("allowed_element_kinds", []):
+            raise RoleRunnerError("INVALID_OUTPUT", f"Element {element_id} uses visual fact {fact_id} with an invalid kind.")
         return
-    if provenance == "approved_narration":
-        if ref not in fragments or content not in fragments[ref]:
-            raise RoleRunnerError("INVALID_OUTPUT", "approved_narration element is not an exact narration substring.")
+    if source_type == "narration_quote":
+        if fact_id != "":
+            raise RoleRunnerError("INVALID_OUTPUT", f"Narration element {element_id} must have empty fact_id.")
+        if fragment_id not in scene_fragment_ids or fragment_id not in fragments:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Narration element {element_id} must quote a fragment in its own scene.")
+        if not isinstance(content, str) or not content or content not in fragments[fragment_id]:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Narration element {element_id} is not an exact approved substring.")
+        if kind == "output":
+            raise RoleRunnerError("INVALID_OUTPUT", f"Narration element {element_id} cannot masquerade as executable output.")
         return
-    if provenance == "derived_evidence":
-        if kind != "state":
-            raise RoleRunnerError("INVALID_OUTPUT", "derived_evidence is permitted only for state elements.")
-        parsed_ref = parse_derived_ref(ref)
-        if parsed_ref is None:
-            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state {element['element_id']} has an invalid source_ref.")
-        origin, evidence_id, index = parsed_ref
-        table = core if origin == "core_example" else enrichment
-        if evidence_id not in table:
-            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state references unknown evidence id {evidence_id!r}.")
-        expected = derived_state_value(table[evidence_id], index)
-        if expected is None or content != expected:
-            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state {element['element_id']} differs from its evidence derivation.")
+    if source_type == "visual_label":
+        if fact_id != "" or fragment_id != "":
+            raise RoleRunnerError("INVALID_OUTPUT", f"Visual label {element_id} must have empty fact_id and fragment_id.")
+        if kind in {"code", "output", "state"}:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Visual label {element_id} cannot masquerade as code/output/state.")
+        if not isinstance(content, str) or not content or len(content.split()) > 5:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Visual label {element_id} must contain one to five words.")
         return
-    if provenance not in {"core_example", "enrichment_check"}:
-        raise RoleRunnerError("INVALID_OUTPUT", f"Unknown provenance {provenance!r}.")
-    table = core if provenance == "core_example" else enrichment
-    if ref not in table:
-        raise RoleRunnerError("INVALID_OUTPUT", f"Visible element references unknown evidence id {ref!r}.")
-    row = table[ref]
-    code = row.get("input") if provenance == "core_example" else row.get("code")
-    stdout = canonical_stdout_display(row.get("actual_stdout", ""))
-    if kind == "code":
-        if content != code:
-            raise RoleRunnerError("INVALID_OUTPUT", f"Code element {element['element_id']} differs from evidence.")
-    elif kind in {"output", "state"}:
-        if not stdout or content != stdout:
-            raise RoleRunnerError("INVALID_OUTPUT", f"Output/state element {element['element_id']} differs from evidence.")
-    else:
-        raise RoleRunnerError(
-            "INVALID_OUTPUT",
-            f"Evidence-backed element {element['element_id']} must be code, output or state.",
-        )
+    raise RoleRunnerError("INVALID_OUTPUT", f"Element {element_id} has invalid source_type.")
 
 
-def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_variant: dict, config: dict) -> None:
+def validate_designer_plan(
+    plan: dict,
+    *,
+    artifact: dict,
+    catalog: dict,
+    selected_variant: dict,
+) -> None:
+    if plan.get("schema_version") != 2:
+        raise RoleRunnerError("INVALID_OUTPUT", "M3b designer plan must use schema version 2.")
     if plan.get("lesson_title") != artifact.get("title"):
         raise RoleRunnerError("INVALID_OUTPUT", "Scene planner changed the approved lesson title.")
+    if plan.get("visual_fact_catalog_sha256") != catalog.get("visual_fact_catalog_sha256"):
+        raise RoleRunnerError("INVALID_OUTPUT", "Scene planner is not bound to the exact visual fact catalog.")
     selected_id = selected_variant.get("variant_id")
     if plan.get("selected_calibration_variant_id") != selected_id:
         raise RoleRunnerError("INVALID_OUTPUT", "Scene plan does not bind the human-selected calibration variant.")
 
     narration = artifact.get("narration", [])
     fragment_ids = [row.get("fragment_id") for row in narration if isinstance(row, dict)]
-    fragments = {row["fragment_id"]: row["text"] for row in narration}
+    fragments = _fragment_map(artifact)
     scenes = plan.get("scenes", [])
     flat = [fragment_id for scene in scenes for fragment_id in scene.get("narration_fragment_ids", [])]
     if flat != fragment_ids:
@@ -301,11 +296,10 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
             "INVALID_OUTPUT",
             "Scenes must cover every approved narration fragment exactly once and preserve order.",
         )
-
     scene_ids = [scene.get("scene_id") for scene in scenes]
     if len(scene_ids) != len(set(scene_ids)) or any(not isinstance(value, str) or not value for value in scene_ids):
         raise RoleRunnerError("INVALID_OUTPUT", "Scene ids must be unique and non-empty.")
-    core, enrichment = _evidence_maps(evidence)
+
     component_rows = plan.get("component_requests", [])
     component_ids = [row.get("component_id") for row in component_rows if isinstance(row, dict)]
     if len(component_ids) != len(component_rows) or len(component_ids) != len(set(component_ids)) or any(not value for value in component_ids):
@@ -317,7 +311,7 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
         if not used or any(scene_id not in scene_id_set for scene_id in used):
             raise RoleRunnerError("INVALID_OUTPUT", f"Component {row.get('component_id')} has invalid scene references.")
 
-    calibration_fragments = set()
+    calibration_fragments: set[str] = set()
     for variant_beat in selected_variant.get("beats", []):
         calibration_fragments.update(variant_beat.get("narration_fragment_ids", []))
     selected_scenes = [scene for scene in scenes if calibration_fragments.intersection(scene["narration_fragment_ids"])]
@@ -331,8 +325,9 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
     if selected_variant.get("requires_new_component") is True and selected_scene.get("requires_new_component") is not True:
         raise RoleRunnerError("INVALID_OUTPUT", "Calibration scene dropped the selected variant's required component.")
 
-    all_beat_fragments: set[str] = set()
+    facts = _fact_map(catalog)
     all_element_ids: set[str] = set()
+    all_beat_fragments: set[str] = set()
     for scene in scenes:
         if scene is not selected_scene and scene.get("calibration_variant_id") != "":
             raise RoleRunnerError("INVALID_OUTPUT", "Only the calibration scene may name an M3a variant.")
@@ -350,11 +345,16 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
         if all_element_ids.intersection(element_ids):
             raise RoleRunnerError("INVALID_OUTPUT", "Visible element ids must be globally unique across the scene plan.")
         all_element_ids.update(element_ids)
-        for element in elements:
-            _validate_element(element, fragments, core, enrichment)
-        known_elements = set(element_ids)
-
         scene_fragments = set(scene["narration_fragment_ids"])
+        for element in elements:
+            _validate_designer_element(
+                element,
+                facts=facts,
+                fragments=fragments,
+                scene_fragment_ids=scene_fragments,
+            )
+
+        known_elements = set(element_ids)
         beat_ids: set[str] = set()
         for beat in scene.get("beats", []):
             beat_id = beat.get("beat_id")
@@ -383,6 +383,88 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
         if request.get("origin_variant_id") != selected_id:
             raise RoleRunnerError("INVALID_OUTPUT", "Calibration component request lost its M3a variant provenance.")
 
+
+def materialize_scene_plan(plan: dict, *, catalog: dict) -> dict:
+    """Resolve fact_id selections into content/provenance without LLM involvement."""
+    result = copy.deepcopy(plan)
+    facts = _fact_map(catalog)
+    for scene in result.get("scenes", []):
+        for element in scene.get("visible_elements", []):
+            source_type = element["source_type"]
+            if source_type == "fact":
+                fact = facts[element["fact_id"]]
+                element["provenance"] = fact["provenance"]
+                element["source_ref"] = fact["source_ref"]
+                element["content"] = fact["content"]
+            elif source_type == "narration_quote":
+                element["provenance"] = "approved_narration"
+                element["source_ref"] = element["fragment_id"]
+            else:
+                element["provenance"] = "visual_label"
+                element["source_ref"] = ""
+    return result
+
+
+def validate_scene_plan(
+    plan: dict,
+    *,
+    artifact: dict,
+    evidence: dict,
+    selected_variant: dict,
+    config: dict,
+    fact_catalog: dict | None = None,
+) -> None:
+    """Validate final materialized plan and its deterministic fact lineage."""
+    if fact_catalog is None:
+        artifact_sha = plan.get("artifact_sha256")
+        if not isinstance(artifact_sha, str) or not artifact_sha:
+            raise RoleRunnerError("INVALID_OUTPUT", "Materialized scene plan has no artifact hash.")
+        fact_catalog = build_visual_fact_catalog(artifact_sha, evidence)
+    try:
+        verify_visual_fact_catalog(
+            fact_catalog,
+            artifact_sha256=plan.get("artifact_sha256"),
+            evidence=evidence,
+        )
+    except ValueError as exc:
+        raise RoleRunnerError("INVALID_OUTPUT", str(exc)) from exc
+
+    designer_view = copy.deepcopy(plan)
+    facts = _fact_map(fact_catalog)
+    for scene in designer_view.get("scenes", []):
+        for element in scene.get("visible_elements", []):
+            source_type = element.get("source_type")
+            if source_type == "fact":
+                fact = facts.get(element.get("fact_id"))
+                if not fact:
+                    raise RoleRunnerError("INVALID_OUTPUT", "Materialized plan references unknown visual fact.")
+                if element.get("content") != fact.get("content"):
+                    raise RoleRunnerError("INVALID_OUTPUT", f"Fact-backed element {element.get('element_id')} content changed after binding.")
+                if element.get("provenance") != fact.get("provenance") or element.get("source_ref") != fact.get("source_ref"):
+                    raise RoleRunnerError("INVALID_OUTPUT", f"Fact-backed element {element.get('element_id')} provenance changed after binding.")
+                element["content"] = ""
+            elif source_type == "narration_quote":
+                if element.get("provenance") != "approved_narration" or element.get("source_ref") != element.get("fragment_id"):
+                    raise RoleRunnerError("INVALID_OUTPUT", f"Narration element {element.get('element_id')} provenance changed after binding.")
+            elif source_type == "visual_label":
+                if element.get("provenance") != "visual_label" or element.get("source_ref") != "":
+                    raise RoleRunnerError("INVALID_OUTPUT", f"Visual label {element.get('element_id')} provenance changed after binding.")
+            element.pop("provenance", None)
+            element.pop("source_ref", None)
+    validate_designer_plan(
+        designer_view,
+        artifact=artifact,
+        catalog=fact_catalog,
+        selected_variant=selected_variant,
+    )
+
+    calibration_fragments: set[str] = set()
+    for variant_beat in selected_variant.get("beats", []):
+        calibration_fragments.update(variant_beat.get("narration_fragment_ids", []))
+    selected_scene = next(
+        scene for scene in plan["scenes"]
+        if calibration_fragments.intersection(scene["narration_fragment_ids"])
+    )
     required_states = {
         element.get("content") for element in selected_variant.get("visible_elements", [])
         if isinstance(element, dict) and element.get("kind") == "state"
@@ -395,23 +477,26 @@ def validate_scene_plan(plan: dict, *, artifact: dict, evidence: dict, selected_
         raise RoleRunnerError("INVALID_OUTPUT", "Calibration scene does not preserve the selected variant's state model.")
 
 
-@task(name="m3b-full-scene-plan-designer", retries=0, cache_policy=NO_CACHE, persist_result=False)
-def design_task(config: dict, verified: dict, evidence: dict, run_dir: str) -> dict:
+@task(name="m3b-full-scene-plan-designer-v2", retries=0, cache_policy=NO_CACHE, persist_result=False)
+def design_task(config: dict, verified: dict, catalog: dict, run_dir: str) -> dict:
     runner = CodexRoleRunner(model=config["model"], reasoning_effort=config["reasoning_effort"])
     runner.preflight()
     approved = verified["approved"]
     selection = verified["selection"]
     selected_variant = verified["selected_variant"]
+    fragment_ids = [row["fragment_id"] for row in approved["artifact"]["narration"]]
+    fact_ids = [row["fact_id"] for row in catalog["facts"]]
     payload = {
         "role_instructions": PROMPT.read_text(encoding="utf-8"),
         "artifact_sha256": approved["artifact_sha256"],
         "gate_a_approval_sha256": approved["approval_sha256"],
         "m3a_selection_sha256": verified["selection_sha256"],
+        "visual_fact_catalog_sha256": catalog["visual_fact_catalog_sha256"],
         "approved_artifact": {
             "title": approved["artifact"]["title"],
             "narration": approved["artifact"]["narration"],
         },
-        "execution_evidence": evidence,
+        "visual_fact_catalog": catalog,
         "selected_calibration": {
             "target_fragment_ids": verified["m3a_summary"]["target_fragment_ids"],
             "variant": selected_variant,
@@ -423,8 +508,10 @@ def design_task(config: dict, verified: dict, evidence: dict, run_dir: str) -> d
             "Gate A narration and title are immutable.",
             "Cover every narration fragment exactly once and preserve fragment order.",
             "Every fragment needs at least one semantic beat with an exact narration anchor substring.",
-            "Every factual code/output visual must be traceable to execution evidence or exact approved narration as allowed by the role instructions.",
-            "A state may be a deterministic scalar item derived from tuple/list actual_stdout only when encoded as derived_evidence.",
+            "For executable code/output/state choose a supplied visual fact_id; do not copy its content or provenance.",
+            "A fact-backed element must have empty content and fragment_id; Prefect resolves them later.",
+            "For an exact Gate A substring not represented by a fact, use narration_quote with its fragment_id and exact content.",
+            "Use visual_label only for a short non-factual UI label.",
             "Use the selected M3a variant as binding mechanics for its test fragment, but do not copy it indiscriminately to other scenes.",
             "No absolute timing, pixel geometry, TTS, audio, rendering or publication decisions.",
             "Do not include previous author/judge history because it is not supplied.",
@@ -434,7 +521,13 @@ def design_task(config: dict, verified: dict, evidence: dict, run_dir: str) -> d
         role="scene_designer",
         payload=payload,
         schema=scene_plan_schema(
-            config, approved["artifact_sha256"], approved["approval_sha256"], verified["selection_sha256"]
+            config,
+            approved["artifact_sha256"],
+            approved["approval_sha256"],
+            verified["selection_sha256"],
+            catalog["visual_fact_catalog_sha256"],
+            fact_ids,
+            fragment_ids,
         ),
         report_dir=Path(run_dir) / "scene_designer",
     )
@@ -449,6 +542,7 @@ def m3b_scene_plan(m3a_run_dir: str) -> dict:
     run_dir.mkdir(parents=True, exist_ok=False)
     summary = {
         "stage": "M3b",
+        "scene_plan_contract_version": 2,
         "lesson_id": config["lesson_id"],
         "status": "ERROR",
         "outcome": "ERROR",
@@ -468,22 +562,40 @@ def m3b_scene_plan(m3a_run_dir: str) -> dict:
         if approved["summary"].get("lesson_id") != config["lesson_id"]:
             raise RoleRunnerError("BLOCKED_INPUT", "M3b config and approved lesson id differ.")
         evidence = build_evidence_packet(approved)
-        result = design_task(config, verified, evidence, str(run_dir))
-        plan = result["output"]
+        catalog = build_visual_fact_catalog(approved["artifact_sha256"], evidence)
+        (run_dir / "visual-fact-catalog.json").write_bytes(
+            (json.dumps(catalog, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        )
+
+        result = design_task(config, verified, catalog, str(run_dir))
+        designer_plan = result["output"]
+        validate_designer_plan(
+            designer_plan,
+            artifact=approved["artifact"],
+            catalog=catalog,
+            selected_variant=verified["selected_variant"],
+        )
+        plan = materialize_scene_plan(designer_plan, catalog=catalog)
         validate_scene_plan(
             plan,
             artifact=approved["artifact"],
             evidence=evidence,
             selected_variant=verified["selected_variant"],
             config=config,
+            fact_catalog=catalog,
         )
+
         session_id = result["receipt"]["session_id"]
         prior_sessions = collect_prior_sessions(approved)
         prior_sessions.add(verified["m3a_summary"].get("scene_designer_session_id"))
         if session_id in prior_sessions:
             raise RoleRunnerError("SESSION_REUSED", "M3b scene designer reused an earlier Codex session.")
 
+        designer_plan_sha = canonical_hash(designer_plan)
         plan_sha = canonical_hash(plan)
+        (run_dir / "scene-plan-design.json").write_bytes(
+            (json.dumps(designer_plan, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        )
         (run_dir / "scene-plan.json").write_bytes(
             (json.dumps(plan, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         )
@@ -495,21 +607,24 @@ def m3b_scene_plan(m3a_run_dir: str) -> dict:
             m3a_selection_sha256=verified["selection_sha256"],
             selected_variant_id=verified["selection"]["selected_variant_id"],
             selected_by=verified["selection"]["selected_by"],
+            visual_fact_catalog_sha256=catalog["visual_fact_catalog_sha256"],
+            designer_plan_sha256=designer_plan_sha,
             scene_designer_session_id=session_id,
             scene_designer_session_new=True,
             scene_plan_sha256=plan_sha,
             scene_count=len(plan["scenes"]),
             component_request_count=len(plan["component_requests"]),
+            deterministic_fact_binding=True,
             next_action="BUILD_PREVIEW",
         )
-        logger.info("M3b completed: %d scenes; preview may be built next.", len(plan["scenes"]))
+        logger.info("M3b v2 completed: %d scenes; preview may be built next.", len(plan["scenes"]))
         return summary
     except RoleRunnerError as exc:
         summary["status"] = exc.status
         summary["outcome"] = exc.status
         summary["error"] = str(exc)
         logger.error("%s: %s", exc.status, exc)
-        raise
+        return summary
     finally:
         (run_dir / "summary.json").write_bytes(
             (json.dumps(summary, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
