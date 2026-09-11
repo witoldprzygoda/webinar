@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "lesson_id": "python-console-calculator",
+  "scene_count": 3,
+  "render": {
+    "codec": "h264",
+    "crf": 18
+  },
+  "screen_copy": {
+    "s01": {
+      "eyebrow": "Interaktywny Python 3.14",
+      "title": "Konsola jako kalkulator",
+      "items": [
+        "Wyrażenie → wartość",
+        "Wartość ma typ",
+        "Sesja pamięta stan"
+      ],
+      "footer": "Tryb interaktywny"
+    },
+    "s02": {
+      "eyebrow": "Operator /",
+      "title": "Zwykłe dzielenie",
+      "items": [
+        "Wynik może mieć typ float",
+        "W konsoli wynik pojawia się bez print()"
+      ],
+      "footer": "Python REPL"
+    },
+    "s03": {
+      "eyebrow": "Operator //",
+      "title": "Dzielenie całkowite",
+      "items": [
+        "Wynik jest zaokrąglany w dół",
+        "To nie jest obcięcie do zera"
+      ],
+      "footer": "Python REPL"
+    }
+  },
+  "intro_variants": [
+    {"variant_id": "intro-01-editorial-dark", "theme": "dark", "layout": "editorial_stack", "motion": "soft_rise"},
+    {"variant_id": "intro-02-editorial-light", "theme": "light", "layout": "editorial_stack", "motion": "soft_rise"},
+    {"variant_id": "intro-03-left-rail-dark", "theme": "dark", "layout": "left_rail", "motion": "line_wipe"},
+    {"variant_id": "intro-04-left-rail-light", "theme": "light", "layout": "left_rail", "motion": "line_wipe"},
+    {"variant_id": "intro-05-flow-dark", "theme": "dark", "layout": "semantic_flow", "motion": "draw_flow"},
+    {"variant_id": "intro-06-spotlight-dark", "theme": "dark", "layout": "spotlight", "motion": "focus_shift"},
+    {"variant_id": "intro-07-paper-light", "theme": "paper", "layout": "editorial_stack", "motion": "soft_rise"},
+    {"variant_id": "intro-08-kinetic-dark", "theme": "dark", "layout": "kinetic_column", "motion": "align_in"}
+  ],
+  "repl_variants": [
+    {"variant_id": "repl-01-terminal-dark", "theme": "dark", "layout": "terminal_window", "motion": "terminal_reveal"},
+    {"variant_id": "repl-02-terminal-light", "theme": "light", "layout": "terminal_window", "motion": "terminal_reveal"},
+    {"variant_id": "repl-03-minimal-dark", "theme": "dark", "layout": "terminal_minimal", "motion": "soft_rise"},
+    {"variant_id": "repl-04-split-dark", "theme": "dark", "layout": "terminal_split", "motion": "focus_shift"},
+    {"variant_id": "repl-05-code-sheet-light", "theme": "paper", "layout": "code_sheet", "motion": "line_wipe"},
+    {"variant_id": "repl-06-command-focus-dark", "theme": "dark", "layout": "command_focus", "motion": "result_drop"}
+  ]
+}
