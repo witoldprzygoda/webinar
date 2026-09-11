@@ -68,27 +68,57 @@ nazwa `_` i jawnie zmieniana wartosc stanu, z rozdzieleniem odczytu od
 aktualizacji. Wybor zapisuje append-only `scripts/record_m3a_selection.py`,
 zwiazany z hashem calego zestawu wariantow i hashem wybranego wariantu.
 
-Projektant dostaje tylko zaakceptowana narracje, powiazane rzeczywiste wyniki
-wykonania i jawny, przypiety know-how pack. Pierwszy know-how snapshot uzywa
+Projektant dostaje tylko zaakceptowana narracje, rzeczywiste wyniki wykonania i
+jawny, przypiety know-how pack. Pierwszy know-how snapshot uzywa
 `python-webinar` commit `f9447818061a10b035ee8ad5cb84ef22a9c9deeb`,
 `wideo/RECEPTURA.md`. Warianty i plan uzywaja semantycznych identyfikatorow, bez
 pikseli, bez bezwzglednych sekund, bez audio i bez zmiany Gate A.
 
-M3b jest zaimplementowane jako `flows/m3b_scene_plan.py`. Wymaga poprawnego
-receipt wyboru M3a i tworzy `scene-plan.json` calej lekcji. Plan:
+### M3b v1 - eksperyment odrzucony
+
+Pierwsza implementacja M3b laczyla dwie odpowiedzialnosci: projektant scen mial
+zarowno zaprojektowac dydaktyke, jak i recznie przepisywac `provenance`,
+`example_id/check_id` oraz dokladne `stdout`. Walidator poprawnie wykrywal
+pomylki, ale probny recovery zaczal naprawiac kolejne klasy technicznych
+mismatchow. To byla zla granica odpowiedzialnosci. Failed run pozostaje jako
+material diagnostyczny; recovery nie jest normalnym etapem produkcyjnym i nie
+nalezy na nim budowac dalszego pipeline.
+
+### M3b v2 - deterministyczny visual fact catalog
+
+`flows/m3b_scene_plan.py` uzywa teraz kontraktu v2. Przed wywolaniem projektanta
+Prefect buduje LLM-free `visual-fact-catalog.json` z zatwierdzonego execution
+evidence. Katalog zawiera stabilne `fact_id` dla:
+
+- literalnego kodu wykonanego przykladu;
+- literalnego stdout po kanonizacji tylko koncowego CR/LF;
+- bezpiecznych, deterministycznych skladowych top-level tuple/list stdout,
+  np. `(2, 5)` -> state facts `2` i `5`.
+
+Projektant scen dla danych wykonawczych wybiera tylko istniejacy `fact_id` i
+`kind`. Nie przepisuje `content`, `provenance`, `example_id` ani `check_id`.
+Schema zawiera enum faktycznych `fact_id`, a Prefect po odpowiedzi materializuje
+`content`, `provenance` i `source_ref` z katalogu. Tym samym bledne zestawienie
+np. kodu enrichmentu z `core_example` nie jest juz decyzja dostepna modelowi.
+
+Dodatkowo `narration_quote` pozwala pokazac dokladny podciag Gate A, ktory nie
+jest osobnym wykonanym faktem, np. kod opisany w narracji. `visual_label` sluzy
+tylko krotkim etykietom UI. Ani `narration_quote`, ani `visual_label` nie moga
+udawac outputu wykonania.
+
+M3b v2 nadal:
 
 - zachowuje wszystkie fragmenty Gate A dokladnie raz i w tej samej kolejnosci;
-- wiaze kazdy beat z `fragment_id` oraz dokladnym `anchor_text` z narracji;
-- wiaze kod/output/state z konkretnym `example_id` albo `check_id`;
-- nie dopuszcza wymyslonych wynikow wykonania;
-- traktuje `v2` jako wiazaca mechanike dla `frag-07`, ale nie kopiuje jej
-  automatycznie do pozostalych scen;
-- jawnie zglasza nowe komponenty potrzebne przed preview.
+- wiaze kazdy beat z `fragment_id` i dokladnym `anchor_text`;
+- traktuje wybrane `v2` jako wiazaca mechanike dla `frag-07`;
+- zapisuje osobno surowa decyzje projektanta `scene-plan-design.json`, katalog
+  `visual-fact-catalog.json` i zmaterializowany `scene-plan.json`;
+- nie renderuje i nie uruchamia audio.
 
-`scripts/m3b_review.py` daje tekstowy przeglad calego planu przed implementacja
-Remotion. M3b nadal nie renderuje i nie uruchamia audio.
+`scripts/m3b_review.py` pokazuje w przegladzie zarowno wybrany `fact_id`, jak i
+wynik deterministycznego bindingu do provenance/evidence.
 
-Nastepne kroki M3:
+Nastepne kroki M3 po zaakceptowaniu planu v2:
 
 1. implementacja/adaptacja potrzebnych komponentow Remotion z `scene-plan.json`;
 2. roboczy timing i podglad bez glosu;
