@@ -1,7 +1,7 @@
 """Recover an M3b draft rejected by evidence binding/display formatting.
 
 This recovery is deterministic. It never changes narration, scene layout, code,
-semantic output, beats, or visual design decisions. It may only:
+semantic values, beats, or visual design decisions. It may only:
 
 1. remove trailing CR/LF characters from evidence-backed output/state content;
 2. rebind source_ref to another existing example_id/check_id when the canonical
@@ -10,15 +10,19 @@ semantic output, beats, or visual design decisions. It may only:
 3. for kind=code only, reclassify an evidence-backed element as
    approved_narration when the exact code string occurs verbatim in exactly one
    approved narration fragment (preferring the current scene). This is not
-   execution evidence and is recorded separately.
+   execution evidence and is recorded separately;
+4. for kind=state only, reclassify a scalar value as derived_evidence when it is
+   exactly one indexed item of a tuple/list parsed from actual_stdout. The
+   source_ref records the original evidence id and item index.
 
-Output/state elements can never use the approved-narration fallback. The
-original failed M3b run remains untouched; a successful recovery creates a new
-M3b run and records every permitted change.
+Output elements can never use narration or derived-state fallbacks. The original
+failed M3b run remains untouched; a successful recovery creates a new M3b run
+and records every permitted change.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import json
 from pathlib import Path
@@ -32,6 +36,8 @@ sys.path.insert(0, str(ROOT))
 from flows.m2b_verify import load_json  # noqa: E402
 from flows.m3b_scene_plan import (  # noqa: E402
     build_evidence_packet,
+    canonical_stdout_display,
+    encode_derived_ref,
     validate_scene_plan,
     verify_m3a_selection,
 )
@@ -45,11 +51,6 @@ class M3bRecoveryError(RuntimeError):
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise M3bRecoveryError(message)
-
-
-def _canonical_output(value: Any) -> str:
-    """Remove only terminal line endings; preserve all other whitespace."""
-    return str(value if value is not None else "").rstrip("\r\n")
 
 
 def _candidate_rows(
@@ -87,7 +88,7 @@ def _row_value(row: dict[str, Any], provenance: str, kind: str) -> str | None:
         value = row.get("input") if provenance == "core_example" else row.get("code")
         return value if isinstance(value, str) and value else None
     if kind in {"output", "state"}:
-        value = _canonical_output(row.get("actual_stdout", ""))
+        value = canonical_stdout_display(row.get("actual_stdout", ""))
         return value or None
     return None
 
@@ -104,6 +105,31 @@ def _matching_rows(
         for ref, row in rows
         if _row_value(row, provenance, kind) == content
     ]
+
+
+def _derived_matches(
+    rows: list[tuple[str, dict[str, Any]]],
+    *,
+    content: str,
+) -> list[tuple[str, int]]:
+    """Find scalar tuple/list items whose Python repr is exactly content."""
+    matches: list[tuple[str, int]] = []
+    for ref, row in rows:
+        stdout = canonical_stdout_display(row.get("actual_stdout", ""))
+        if not stdout:
+            continue
+        try:
+            parsed = ast.literal_eval(stdout)
+        except (SyntaxError, ValueError):
+            continue
+        if not isinstance(parsed, (tuple, list)):
+            continue
+        for index, value in enumerate(parsed):
+            if value is not None and not isinstance(value, (str, int, float, bool, complex)):
+                continue
+            if repr(value) == content:
+                matches.append((ref, index))
+    return matches
 
 
 def _narration_matches(
@@ -126,6 +152,36 @@ def _narration_matches(
         if content in text:
             matches.append(fragment_id)
     return matches
+
+
+def _apply_derived_state(
+    element: dict[str, Any],
+    *,
+    scene_id: str,
+    provenance: str,
+    old_ref: Any,
+    evidence_ref: str,
+    index: int,
+    match_scope: str,
+    provenance_changes: list[dict[str, str]],
+) -> None:
+    new_ref = encode_derived_ref(provenance, evidence_ref, index)
+    content = str(element.get("content", ""))
+    element["provenance"] = "derived_evidence"
+    element["source_ref"] = new_ref
+    provenance_changes.append({
+        "scene_id": scene_id,
+        "element_id": str(element.get("element_id", "")),
+        "kind": "state",
+        "content": content,
+        "old_provenance": provenance,
+        "new_provenance": "derived_evidence",
+        "old_source_ref": str(old_ref or ""),
+        "new_source_ref": new_ref,
+        "match_scope": match_scope,
+        "derivation": f"stdout_literal[{index}]",
+        "reason": "scalar_item_of_verified_tuple_or_list_stdout",
+    })
 
 
 def repair_evidence_refs(
@@ -166,7 +222,7 @@ def repair_evidence_refs(
 
             element_id = str(element.get("element_id", ""))
             if kind in {"output", "state"}:
-                canonical = _canonical_output(content)
+                canonical = canonical_stdout_display(content)
                 if canonical != content:
                     element["content"] = canonical
                     content_normalizations.append({
@@ -184,9 +240,31 @@ def repair_evidence_refs(
                 evidence=evidence,
                 scene_fragment_ids=None,
             )
-            current = [row for ref, row in all_rows if ref == old_ref]
-            if len(current) == 1 and _row_value(current[0], provenance, kind) == content:
-                continue
+            current_pairs = [(ref, row) for ref, row in all_rows if ref == old_ref]
+            if len(current_pairs) == 1:
+                current_row = current_pairs[0][1]
+                if _row_value(current_row, provenance, kind) == content:
+                    continue
+                if kind == "state":
+                    current_derived = _derived_matches(current_pairs, content=content)
+                    if len(current_derived) == 1:
+                        evidence_ref, index = current_derived[0]
+                        _apply_derived_state(
+                            element,
+                            scene_id=scene_id,
+                            provenance=provenance,
+                            old_ref=old_ref,
+                            evidence_ref=evidence_ref,
+                            index=index,
+                            match_scope="current_source_ref",
+                            provenance_changes=provenance_changes,
+                        )
+                        continue
+                    if len(current_derived) > 1:
+                        raise M3bRecoveryError(
+                            f"Cannot recover {scene_id}/{element_id}: state {content!r} is ambiguous "
+                            "within the currently referenced structured stdout."
+                        )
 
             scene_rows = _candidate_rows(
                 provenance,
@@ -241,6 +319,45 @@ def repair_evidence_refs(
                 })
                 continue
 
+            # State is allowed to expose one scalar item of an executed tuple/list.
+            # Prefer the current scene, then require a globally unique derivation.
+            if kind == "state":
+                scene_derived = _derived_matches(scene_rows, content=content)
+                if len(scene_derived) == 1:
+                    derived_matches = scene_derived
+                    derived_scope = "scene_fragments"
+                elif len(scene_derived) > 1:
+                    raise M3bRecoveryError(
+                        f"Cannot recover {scene_id}/{element_id}: state {content!r} matches multiple "
+                        "derived items in structured stdout linked to the scene."
+                    )
+                else:
+                    global_derived = _derived_matches(all_rows, content=content)
+                    if len(global_derived) == 1:
+                        derived_matches = global_derived
+                        derived_scope = "global_unique"
+                    elif len(global_derived) > 1:
+                        raise M3bRecoveryError(
+                            f"Cannot recover {scene_id}/{element_id}: state {content!r} matches multiple "
+                            "derived items globally and none is unique in the scene."
+                        )
+                    else:
+                        derived_matches = []
+                        derived_scope = ""
+                if derived_matches:
+                    evidence_ref, index = derived_matches[0]
+                    _apply_derived_state(
+                        element,
+                        scene_id=scene_id,
+                        provenance=provenance,
+                        old_ref=old_ref,
+                        evidence_ref=evidence_ref,
+                        index=index,
+                        match_scope=derived_scope,
+                        provenance_changes=provenance_changes,
+                    )
+                    continue
+
             # No exact execution-evidence row exists. For CODE only, an exact
             # approved narration substring is a legal provenance source. This
             # preserves the displayed code and does not pretend it was executed.
@@ -288,7 +405,7 @@ def repair_evidence_refs(
 
             raise M3bRecoveryError(
                 f"Cannot recover {scene_id}/{element_id}: canonical content {content!r} "
-                "matches no execution evidence globally and has no permitted approved-narration fallback."
+                "has no permitted exact or deterministic provenance."
             )
 
     return repaired, ref_changes, content_normalizations, provenance_changes
@@ -341,23 +458,32 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
     (run_dir / "scene-plan.json").write_bytes(
         (json.dumps(repaired, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     )
+    derived_count = sum(
+        1 for row in provenance_changes if row.get("new_provenance") == "derived_evidence"
+    )
+    narration_reclass_count = sum(
+        1 for row in provenance_changes if row.get("new_provenance") == "approved_narration"
+    )
     recovery_report = {
-        "schema_version": 4,
-        "recovery_kind": "evidence_binding_stdout_and_approved_narration_code",
+        "schema_version": 5,
+        "recovery_kind": "evidence_binding_stdout_narration_code_and_derived_state",
         "source_failed_m3b_run": str(failed_run_dir),
         "source_designer_session_id": receipt.get("session_id"),
         "source_designer_output_sha256": receipt.get("output_sha256"),
         "llm_called": False,
         "semantic_content_changed": False,
         "allowed_content_normalization": "remove_trailing_crlf_only",
-        "binding_policy": "prefer_scene_fragment_match_then_global_unique",
+        "binding_policy": "prefer_current_ref_then_scene_fragment_match_then_global_unique",
         "approved_narration_fallback": "code_only_exact_substring",
+        "derived_state_policy": "state_only_scalar_index_from_tuple_or_list_actual_stdout",
         "content_normalizations": content_normalizations,
         "content_normalization_count": len(content_normalizations),
         "source_ref_changes": ref_changes,
         "repaired_binding_count": len(ref_changes),
         "provenance_changes": provenance_changes,
         "provenance_change_count": len(provenance_changes),
+        "derived_state_count": derived_count,
+        "approved_narration_reclassification_count": narration_reclass_count,
         "scene_plan_sha256": plan_sha,
     }
     recovery_report["recovery_report_sha256"] = canonical_hash(recovery_report)
@@ -392,6 +518,7 @@ def recover_failed_m3b(failed_run_dir: Path) -> dict[str, Any]:
         "content_normalization_count": len(content_normalizations),
         "repaired_binding_count": len(ref_changes),
         "provenance_change_count": len(provenance_changes),
+        "derived_state_count": derived_count,
         "scene_plan_sha256": plan_sha,
         "scene_count": len(repaired.get("scenes", [])),
         "component_request_count": len(repaired.get("component_requests", [])),
