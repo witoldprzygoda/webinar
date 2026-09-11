@@ -28,7 +28,14 @@ class M3bRecoveryTests(unittest.TestCase):
                     "actual_stdout": "5\n",
                 },
             ],
-            "enrichment_checks": [],
+            "enrichment_checks": [
+                {
+                    "check_id": "c-divmod",
+                    "fragment_ids": ["f1"],
+                    "code": "print(divmod(125, 60))",
+                    "actual_stdout": "(2, 5)\n",
+                }
+            ],
         }
 
     def artifact(self, text: str = "Przykład: minuty, sekundy = divmod(125, 60).") -> dict:
@@ -163,9 +170,36 @@ class M3bRecoveryTests(unittest.TestCase):
         self.assertEqual(provenance_changes[0]["new_provenance"], "approved_narration")
         self.assertEqual(provenance_changes[0]["match_scope"], "scene_fragments")
 
-    def test_output_can_never_fallback_to_approved_narration(self):
-        plan = self.plan(source_ref="missing", content="999")
-        artifact = self.artifact("Narracja wymienia wynik 999.")
+    def test_state_can_be_derived_from_current_structured_stdout(self):
+        plan = self.plan(source_ref="c-divmod", content="2")
+        element = plan["scenes"][0]["visible_elements"][0]
+        element["kind"] = "state"
+        element["provenance"] = "enrichment_check"
+        repaired, ref_changes, normalizations, provenance_changes = self.repair(plan)
+        result = repaired["scenes"][0]["visible_elements"][0]
+        self.assertEqual(result["content"], "2")
+        self.assertEqual(result["provenance"], "derived_evidence")
+        self.assertEqual(result["source_ref"], "enrichment_check:c-divmod#stdout_literal[0]")
+        self.assertEqual(ref_changes, [])
+        self.assertEqual(normalizations, [])
+        self.assertEqual(len(provenance_changes), 1)
+        self.assertEqual(provenance_changes[0]["derivation"], "stdout_literal[0]")
+        self.assertEqual(provenance_changes[0]["match_scope"], "current_source_ref")
+
+    def test_second_state_can_be_derived_from_same_structured_stdout(self):
+        plan = self.plan(source_ref="c-divmod", content="5")
+        element = plan["scenes"][0]["visible_elements"][0]
+        element["kind"] = "state"
+        element["provenance"] = "enrichment_check"
+        repaired, _, _, provenance_changes = self.repair(plan)
+        result = repaired["scenes"][0]["visible_elements"][0]
+        self.assertEqual(result["source_ref"], "enrichment_check:c-divmod#stdout_literal[1]")
+        self.assertEqual(len(provenance_changes), 1)
+
+    def test_output_can_never_use_derived_or_narration_fallback(self):
+        plan = self.plan(source_ref="c-divmod", content="2")
+        plan["scenes"][0]["visible_elements"][0]["provenance"] = "enrichment_check"
+        artifact = self.artifact("Narracja wymienia wynik 2.")
         with self.assertRaises(M3bRecoveryError):
             self.repair(plan, artifact=artifact)
 
@@ -196,6 +230,16 @@ class M3bRecoveryTests(unittest.TestCase):
         })
         plan = self.plan(source_ref="e2", content="17 // 3")
         plan["scenes"][0]["visible_elements"][0]["kind"] = "code"
+        with self.assertRaises(M3bRecoveryError):
+            self.repair(plan, evidence=evidence)
+
+    def test_ambiguous_derived_item_in_current_stdout_is_rejected(self):
+        evidence = self.evidence()
+        evidence["enrichment_checks"][0]["actual_stdout"] = "(2, 2)\n"
+        plan = self.plan(source_ref="c-divmod", content="2")
+        element = plan["scenes"][0]["visible_elements"][0]
+        element["kind"] = "state"
+        element["provenance"] = "enrichment_check"
         with self.assertRaises(M3bRecoveryError):
             self.repair(plan, evidence=evidence)
 
