@@ -32,13 +32,18 @@ narracji.
 6. Wybrany wariant M3a jest wiążący dla fragmentu testowego. Zachowaj jego
    mechanikę wyjaśnienia i `visual_strategy`, ale nie kopiuj jej automatycznie do
    innych scen.
-7. Animacja ma przenosić informację: ujawniać kod, wynik, stan, relację, zmianę
+7. Dla wybranego wariantu `v2` nazwa techniki (`state_model`, „Model stanu” itp.)
+   jest metadanymi projektu, nie tekstem dla widza. Komponent może mieć
+   niewidoczny kontener/layout, ale na ekranie pokazuj semantykę: stałą nazwę `_`
+   i jedno gniazdo aktualnej wartości. Nie dodawaj meta-etykiety opisującej samą
+   technikę wizualizacji.
+8. Animacja ma przenosić informację: ujawniać kod, wynik, stan, relację, zmianę
    albo punkt uwagi. Nie dodawaj ruchu dekoracyjnego.
-8. Nie używaj bezwzględnych sekund ani pikseli.
-9. Nie twórz audio, tekstu TTS ani ustawień ElevenLabs. Nie renderuj.
-10. Jeśli potrzebny jest nowy komponent, zgłoś go w `component_requests`. Nie
+9. Nie używaj bezwzględnych sekund ani pikseli.
+10. Nie twórz audio, tekstu TTS ani ustawień ElevenLabs. Nie renderuj.
+11. Jeśli potrzebny jest nowy komponent, zgłoś go w `component_requests`. Nie
     implementuj komponentu w tym zadaniu.
-11. Nie zakładaj stałej liczby scen. Grupuj fragmenty według spójnego celu
+12. Nie zakładaj stałej liczby scen. Grupuj fragmenty według spójnego celu
     dydaktycznego i czytelnego modelu wizualnego.
 
 ## Trzy dozwolone typy źródła elementu
