@@ -1,8 +1,14 @@
-"""Deterministic visual facts derived from approved execution evidence.
+"""Deterministic visual facts that are safe to present on screen.
 
-The scene designer should select fact_id values instead of copying executable
-code, stdout, or provenance metadata by hand.  This module is deliberately
-LLM-free: the catalog is a pure function of already approved execution evidence.
+The scene designer selects fact_id values instead of copying executable code,
+stdout, or provenance metadata by hand. This module is deliberately LLM-free.
+
+Important boundary: core_examples are artifact-bound teaching examples and may
+become visible facts. enrichment_checks are verification harnesses; their code
+and stdout prove claims but are not presentation material and therefore are NOT
+published into the visual fact catalog. Enrichment visuals must come from exact
+Gate A narration quotes unless a future stage defines an explicit display
+example contract.
 """
 from __future__ import annotations
 
@@ -105,29 +111,19 @@ def build_visual_fact_catalog(artifact_sha256: str, evidence: dict[str, Any]) ->
             stdout=canonical_stdout(row.get("actual_stdout", "")),
             fragment_ids=[value for value in row.get("fragment_ids", []) if isinstance(value, str) and value],
         )
-    for row in evidence.get("enrichment_checks", []):
-        if not isinstance(row, dict):
-            continue
-        row_id = row.get("check_id")
-        code = row.get("code")
-        if not isinstance(row_id, str) or not row_id or not isinstance(code, str) or not code:
-            continue
-        _append_row_facts(
-            facts,
-            namespace="enrichment",
-            provenance="enrichment_check",
-            row_id=row_id,
-            code=code,
-            stdout=canonical_stdout(row.get("actual_stdout", "")),
-            fragment_ids=[value for value in row.get("fragment_ids", []) if isinstance(value, str) and value],
-        )
+
+    # Deliberately do NOT expose enrichment_checks here. Their Python code is a
+    # verification harness (often containing assert/print instrumentation) and
+    # their stdout belongs to that harness. Verification evidence remains
+    # available to judges and audit, but not as presentation facts.
 
     fact_ids = [row["fact_id"] for row in facts]
     if len(fact_ids) != len(set(fact_ids)):
         raise ValueError("Visual fact ids are not unique.")
     catalog = {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_sha256": artifact_sha256,
+        "presentation_policy": "core_examples_only_enrichment_checks_verification_only",
         "facts": facts,
     }
     catalog["visual_fact_catalog_sha256"] = canonical_hash(catalog)
@@ -142,4 +138,4 @@ def verify_visual_fact_catalog(
 ) -> None:
     expected = build_visual_fact_catalog(artifact_sha256, evidence)
     if catalog != expected:
-        raise ValueError("Visual fact catalog does not match approved execution evidence.")
+        raise ValueError("Visual fact catalog does not match approved execution evidence and presentation policy.")
