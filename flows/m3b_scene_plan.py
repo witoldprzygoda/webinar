@@ -7,8 +7,10 @@ No audio or render is produced in this stage.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from pathlib import Path
+import re
 import sys
 import uuid
 
@@ -27,7 +29,8 @@ from scripts.record_gate_a_approval import canonical_hash  # noqa: E402
 CONFIG = ROOT / "config" / "m3b_scene_plan.json"
 PROMPT = ROOT / "prompts" / "scene_plan_designer.md"
 ELEMENT_KINDS = ("code", "output", "label", "state", "panel", "diagram", "pointer_target", "other")
-PROVENANCE = ("approved_narration", "core_example", "enrichment_check", "visual_label")
+PROVENANCE = ("approved_narration", "core_example", "enrichment_check", "derived_evidence", "visual_label")
+DERIVED_REF_RE = re.compile(r"^(core_example|enrichment_check):(.+)#stdout_literal\[(\d+)\]$")
 
 
 def scene_plan_schema(config: dict, artifact_sha256: str, approval_sha256: str, selection_sha256: str) -> dict:
@@ -192,6 +195,43 @@ def _evidence_maps(evidence: dict) -> tuple[dict[str, dict], dict[str, dict]]:
     return core, enrichment
 
 
+def canonical_stdout_display(value) -> str:
+    """Canonical on-screen stdout: remove only terminal CR/LF characters."""
+    return str(value if value is not None else "").rstrip("\r\n")
+
+
+def encode_derived_ref(origin: str, evidence_id: str, index: int) -> str:
+    if origin not in {"core_example", "enrichment_check"} or not evidence_id or index < 0:
+        raise ValueError("Invalid derived evidence reference.")
+    return f"{origin}:{evidence_id}#stdout_literal[{index}]"
+
+
+def parse_derived_ref(ref: str) -> tuple[str, str, int] | None:
+    if not isinstance(ref, str):
+        return None
+    match = DERIVED_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    return match.group(1), match.group(2), int(match.group(3))
+
+
+def derived_state_value(row: dict, index: int) -> str | None:
+    """Return repr of one scalar tuple/list item from actual stdout."""
+    stdout = canonical_stdout_display(row.get("actual_stdout", ""))
+    if not stdout:
+        return None
+    try:
+        parsed = ast.literal_eval(stdout)
+    except (SyntaxError, ValueError):
+        return None
+    if not isinstance(parsed, (tuple, list)) or index < 0 or index >= len(parsed):
+        return None
+    value = parsed[index]
+    if value is not None and not isinstance(value, (str, int, float, bool, complex)):
+        return None
+    return repr(value)
+
+
 def _validate_element(element: dict, fragments: dict[str, str], core: dict[str, dict], enrichment: dict[str, dict]) -> None:
     provenance = element["provenance"]
     ref = element["source_ref"]
@@ -209,12 +249,28 @@ def _validate_element(element: dict, fragments: dict[str, str], core: dict[str, 
         if ref not in fragments or content not in fragments[ref]:
             raise RoleRunnerError("INVALID_OUTPUT", "approved_narration element is not an exact narration substring.")
         return
+    if provenance == "derived_evidence":
+        if kind != "state":
+            raise RoleRunnerError("INVALID_OUTPUT", "derived_evidence is permitted only for state elements.")
+        parsed_ref = parse_derived_ref(ref)
+        if parsed_ref is None:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state {element['element_id']} has an invalid source_ref.")
+        origin, evidence_id, index = parsed_ref
+        table = core if origin == "core_example" else enrichment
+        if evidence_id not in table:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state references unknown evidence id {evidence_id!r}.")
+        expected = derived_state_value(table[evidence_id], index)
+        if expected is None or content != expected:
+            raise RoleRunnerError("INVALID_OUTPUT", f"Derived state {element['element_id']} differs from its evidence derivation.")
+        return
+    if provenance not in {"core_example", "enrichment_check"}:
+        raise RoleRunnerError("INVALID_OUTPUT", f"Unknown provenance {provenance!r}.")
     table = core if provenance == "core_example" else enrichment
     if ref not in table:
         raise RoleRunnerError("INVALID_OUTPUT", f"Visible element references unknown evidence id {ref!r}.")
     row = table[ref]
     code = row.get("input") if provenance == "core_example" else row.get("code")
-    stdout = str(row.get("actual_stdout", "")).strip()
+    stdout = canonical_stdout_display(row.get("actual_stdout", ""))
     if kind == "code":
         if content != code:
             raise RoleRunnerError("INVALID_OUTPUT", f"Code element {element['element_id']} differs from evidence.")
@@ -367,7 +423,8 @@ def design_task(config: dict, verified: dict, evidence: dict, run_dir: str) -> d
             "Gate A narration and title are immutable.",
             "Cover every narration fragment exactly once and preserve fragment order.",
             "Every fragment needs at least one semantic beat with an exact narration anchor substring.",
-            "Every factual code/output/state visual must be traceable to supplied execution evidence.",
+            "Every factual code/output visual must be traceable to execution evidence or exact approved narration as allowed by the role instructions.",
+            "A state may be a deterministic scalar item derived from tuple/list actual_stdout only when encoded as derived_evidence.",
             "Use the selected M3a variant as binding mechanics for its test fragment, but do not copy it indiscriminately to other scenes.",
             "No absolute timing, pixel geometry, TTS, audio, rendering or publication decisions.",
             "Do not include previous author/judge history because it is not supplied.",
